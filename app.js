@@ -3366,19 +3366,6 @@ function bindTop() {
   const btnExpand = $("btnExpand");
   const addRule = $("addRule");
 
-  const btnLogout = $("btnLogout");
-  if (btnLogout) {
-    btnLogout.onclick = async () => {
-      try {
-        await sb.auth.signOut();
-        openAuthModal();
-      } catch (e) {
-        alert("로그아웃 실패: " + (e?.message || e));
-      }
-    };
-  }
-
-
   if (surveyTitle) surveyTitle.addEventListener("input", (e) => (state.survey.title = e.target.value));
   if (surveyVersion) surveyVersion.addEventListener("input", (e) => (state.survey.version = e.target.value));
 
