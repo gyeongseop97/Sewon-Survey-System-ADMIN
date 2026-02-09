@@ -86,6 +86,182 @@ async function requireLoginOrModal(){
   });
 }
 
+function randomCode(len = 8) {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+// 1) 서버에 저장(없으면 insert / 있으면 update)
+async function saveSurveyToServer() {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) {
+    alert("로그인이 필요합니다.");
+    return;
+  }
+
+  // state.survey 를 네 코드에서 쓰는 설문 객체로 맞춰야 함
+  // 지금 app.js에는 state.survey가 있으니 그걸 사용한다고 가정할게.
+  const survey = state.survey;
+
+  const title = (survey.title || "").trim() || "제목 없음";
+  let code = survey.code || "";
+  if (!code) code = randomCode(8);
+
+  const payload = {
+    owner: user.id,
+    title,
+    code,
+    schema: survey,
+  };
+
+  // 최초 저장인지 / 수정 저장인지 구분(설문에 _dbId 같은 키로 저장해두면 편함)
+  if (!survey._dbId) {
+    const { data, error } = await supabase
+      .from("surveys")
+      .insert([payload])
+      .select("id, code")
+      .single();
+
+    if (error) {
+      console.error(error);
+      alert("서버 저장 실패: " + error.message);
+      return;
+    }
+
+    // 로컬 설문 객체에 db id/code 저장
+    survey._dbId = data.id;
+    survey.code = data.code;
+    alert("서버에 저장 완료! 설문 코드: " + data.code);
+  } else {
+    const { error } = await supabase
+      .from("surveys")
+      .update(payload)
+      .eq("id", survey._dbId);
+
+    if (error) {
+      console.error(error);
+      alert("수정 저장 실패: " + error.message);
+      return;
+    }
+    survey.code = code;
+    alert("수정 저장 완료!");
+  }
+}
+
+// 2) 내 설문 목록 가져오기 + 테이블 렌더
+async function loadMySurveys() {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) {
+    alert("로그인이 필요합니다.");
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("surveys")
+    .select("id, title, code, updated_at")
+    .eq("owner", user.id)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    alert("목록 불러오기 실패: " + error.message);
+    return;
+  }
+
+  const tbody = document.getElementById("manageSurveyTbody");
+  tbody.innerHTML = "";
+
+  data.forEach((row, idx) => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(row.title)}</td>
+      <td><code>${row.code}</code></td>
+      <td><button class="btn" data-edit="${row.id}">편집</button></td>
+      <td><button class="btn" data-answers="${row.id}">답변 보기</button></td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+
+  // 버튼 이벤트 바인딩
+  tbody.querySelectorAll("[data-edit]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-edit");
+      await loadSurveyById(id);
+      // 여기서 네 앱의 “설문 편집 화면”으로 이동시키면 됨 (showView('builder') 같은)
+      showView("builder"); 
+    });
+  });
+
+  tbody.querySelectorAll("[data-answers]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-answers");
+      await loadResponsesBySurveyId(id);
+    });
+  });
+}
+
+// 3) 설문 1개 불러오기(편집용)
+async function loadSurveyById(id) {
+  const { data, error } = await supabase
+    .from("surveys")
+    .select("id, code, title, schema")
+    .eq("id", id)
+    .single();
+
+  if (error) {
+    console.error(error);
+    alert("설문 불러오기 실패: " + error.message);
+    return;
+  }
+
+  // schema 를 state.survey로 덮어씌우기
+  state.survey = data.schema;
+  state.survey._dbId = data.id;
+  state.survey.code = data.code;
+  state.survey.title = data.title;
+
+  // 불러온 뒤 화면 갱신(네 기존 렌더 함수 호출)
+  renderAll();
+}
+
+// 4) 답변 목록 불러오기(간단 alert로 먼저 확인 → 나중에 모달/페이지로 확장)
+async function loadResponsesBySurveyId(surveyId) {
+  const { data, error } = await supabase
+    .from("responses")
+    .select("id, created_at, status, respondent")
+    .eq("survey_id", surveyId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    alert("답변 불러오기 실패: " + error.message);
+    return;
+  }
+
+  if (!data.length) {
+    alert("제출된 답변이 없습니다.");
+    return;
+  }
+
+  // 일단은 가장 단순하게 리스트 문자열로 보여주기
+  const lines = data.map((r, i) => `${i + 1}. ${new Date(r.created_at).toLocaleString()} / ${r.status} / ${r.id}`);
+  alert("제출된 답변 목록\n\n" + lines.join("\n"));
+}
+
+// XSS 방지용 (테이블 출력시)
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
   
   // ------------------ Helpers ------------------
