@@ -3202,10 +3202,11 @@ if (cbManual) {
   };
 }
 
-// 최초 1회 렌더
-drawManual();
+	// 최초 1회 렌더
+	drawManual();
+	}); // ✅ qs.forEach 끝 (닫는 괄호/세미콜론 누락으로 SyntaxError 발생)
 
-  wrap.querySelector("#sim_calc").onclick = () => {
+	  wrap.querySelector("#sim_calc").onclick = () => {
     const result = computeScoreFromSim();
     wrap.querySelector("#sim_result").innerHTML = renderScoreResultHtml(result);
   };
@@ -3633,3 +3634,5 @@ window.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 });
+
+})();
