@@ -15,6 +15,23 @@ const SUPABASE_KEY = "sb_publishable_fnGFEvCmhZRRIWj0qrEEeA_Vex3mxac";
 // UMD로 로드하면 window.supabase가 생깁니다.
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+  async function sbSignInWithEmail(email, password) {
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+async function sbSignOut() {
+  const { error } = await sb.auth.signOut();
+  if (error) throw error;
+}
+
+async function sbGetSession() {
+  const { data, error } = await sb.auth.getSession();
+  if (error) throw error;
+  return data.session;
+}
+
   // ------------------ Helpers ------------------
   const uid = (p) =>
     `${p}_${Math.random().toString(16).slice(2, 10)}${Date.now().toString(16).slice(-4)}`;
