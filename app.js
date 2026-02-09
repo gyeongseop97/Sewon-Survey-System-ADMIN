@@ -3145,32 +3145,65 @@ function renderScoringSimulatorCard(filterG1 = null, filterG2 = null) {
     // ✅ 활성/트리거(컨트롤은 필요) 컨트롤 렌더
     renderSimControls(controls, q, ans);
 
-    // ---- 수동점수 패널 ----
-    const drawManual = () => {
-      if (!cbManual) return;
-      manualPanel.style.display = ans.manualEnabled ? "" : "none";
-      if (!ans.manualEnabled) return;
+// ---- 수동점수 패널 ----
+const drawManual = () => {
+  if (!cbManual) return;
 
-      manualPanel.innerHTML = `
-        <div class="hint">※ 수동점수는 이 문항의 자동점수를 덮어씁니다. (0 ~ ${qMax.toFixed(2)}점)</div>
-        <div style="margin-top:6px;">
-          점수 <input type="number" id="ms_${q.id}" value="${Number(ans.manualScore || 0)}" min="0" max="${qMax}" step="0.01">
-          <label style="margin-left:10px;">
-            <input type="checkbox" id="mr_${q.id}" ${ans.manualReject ? "checked" : ""}>
-            <span>미인정(강제 0점)</span>
-          </label>
-        </div>
-      `;
+  manualPanel.style.display = ans.manualEnabled ? "" : "none";
+  if (!ans.manualEnabled) {
+    manualPanel.innerHTML = "";
+    return;
+  }
 
-      manualPanel.querySelector(`#ms_${q.id}`).oninput = (e) => (ans.manualScore = Number(e.target.value));
-      manualPanel.querySelector(`#mr_${q.id}`).onchange = (e) => (ans.manualReject = e.target.checked);
+  manualPanel.innerHTML = `
+    <div class="hint">※ 수동점수는 이 문항의 자동점수를 덮어씁니다. (0 ~ ${qMax.toFixed(2)}점)</div>
+    <div style="margin-top:6px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <div>
+        점수
+        <input type="number" id="ms_${q.id}" value="${Number(ans.manualScore || 0)}"
+               min="0" max="${qMax}" step="0.01" style="width:120px;">
+      </div>
+
+      <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="mr_${q.id}" ${ans.manualReject ? "checked" : ""}>
+        <span><b>미인정(강제 0점)</b></span>
+      </label>
+    </div>
+  `;
+
+  const inp = manualPanel.querySelector(`#ms_${CSS.escape(q.id)}`);
+  const rej = manualPanel.querySelector(`#mr_${CSS.escape(q.id)}`);
+
+  if (inp) {
+    inp.oninput = () => {
+      ans.manualScore = Number(inp.value || 0);
     };
+  }
+  if (rej) {
+    rej.onchange = () => {
+      ans.manualReject = !!rej.checked;
+      // 미인정이면 점수 입력칸 비활성화(선택)
+      if (inp) inp.disabled = ans.manualReject;
+    };
+    // 초기 반영
+    if (inp) inp.disabled = !!ans.manualReject;
+  }
+};
 
-    if (cbManual && !cbManual.disabled) {
-      cbManual.onchange = (e) => { ans.manualEnabled = e.target.checked; drawManual(); };
-      drawManual();
+// 수동점수 체크박스 바인딩
+if (cbManual) {
+  cbManual.onchange = () => {
+    ans.manualEnabled = !!cbManual.checked;
+    if (!ans.manualEnabled) {
+      ans.manualReject = false;
+      ans.manualScore = 0;
     }
-  });
+    drawManual();
+  };
+}
+
+// 최초 1회 렌더
+drawManual();
 
   wrap.querySelector("#sim_calc").onclick = () => {
     const result = computeScoreFromSim();
