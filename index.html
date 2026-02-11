@@ -105,6 +105,37 @@
     </div>
   </div>
 </section>
+<!-- ===== Submitted Answers View ===== -->
+<section class="view view-answers">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>제출된 답변 보기</h2>
+        <p id="submittedSurveyTitle" class="muted">-</p>
+      </div>
+      <div class="actions">
+        <button id="btnAnswersBack" class="btn">← 뒤로</button>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:70px;">NO</th>
+            <th>회사명</th>
+            <th>이름</th>
+            <th>아이디</th>
+            <th style="width:120px;">제출 점수</th>
+            <th style="width:110px;">편집</th>
+            <th style="width:140px;">답변 다운로드</th>
+          </tr>
+        </thead>
+        <tbody id="submittedTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 
       <!-- (1) 설문 수정 -->
       <section class="view view-edit active">
@@ -154,6 +185,38 @@
           <div id="preview"></div>
         </div>
       </section>
+<section class="view view-answers">
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+      <div>
+        <div class="h2" id="answersSurveyTitle">제출된 답변 보기</div>
+        <div class="muted">해당 설문 코드로 제출된 답변 목록</div>
+      </div>
+      <button class="btn" id="btnAnswersBack">뒤로</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="h3">제출 답변 리스트</div>
+
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:64px;">NO</th>
+            <th>회사명</th>
+            <th>이름</th>
+            <th>아이디</th>
+            <th style="width:120px;">제출 점수</th>
+            <th style="width:90px;">편집</th>
+            <th style="width:120px;">답변 다운로드</th>
+          </tr>
+        </thead>
+        <tbody id="answersTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 
     </section>
   </main>
