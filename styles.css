@@ -891,4 +891,8 @@ body{
     height: 6px;
   }
 }
-
+@media (max-width: 900px){
+  .sidebar{
+    width: clamp(180px, 35vw, 300px);
+  }
+}
