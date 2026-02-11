@@ -823,3 +823,64 @@ body{
 .auth-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:14px; }
 .auth-error{ margin-top:10px; font-size:12px; color:#b91c1c; display:none; }
 .auth-error.show{ display:block; }
+/* ✅ 모바일에서는 전체 스크롤 허용 (키보드/작은 화면 대응) */
+@media (max-width: 900px){
+  body{
+    overflow:auto;          /* 기존 hidden 덮기 */
+    height:auto;            /* 100vh 강제 완화 */
+    min-height:100vh;
+  }
+}
+/* ✅ 모바일/태블릿: 좌우 2단 → 상하 1단 (sidebar 위, canvas 아래) */
+@media (max-width: 900px){
+  .layout{
+    flex-direction: column;
+    overflow: visible;    /* flex 내부 스크롤 막힘 방지 */
+  }
+
+  .sidebar{
+    width: 100%;
+    min-width: 0;         /* 320px 고정 최소폭 해제 */
+    overflow: visible;    /* 모바일에서 패널 잘림 방지 */
+  }
+
+  .canvas{
+    width: 100%;
+    overflow: auto;
+  }
+}
+@media (max-width: 640px){
+  .tree{
+    max-height: 240px;  /* 모바일에서 트리 높이 줄이기 */
+  }
+
+  .panel{
+    margin-bottom: 10px;
+  }
+
+  .layout{
+    padding: 10px;
+    gap: 10px;
+  }
+}
+/* ✅ iOS safe-area 대응 */
+.topbar{
+  padding-top: calc(10px + env(safe-area-inset-top));
+}
+
+.footer{
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+@media (max-width: 640px){
+  .top-center{
+    flex-wrap: nowrap;         /* 줄바꿈 금지 */
+    overflow-x: auto;          /* 가로 스크롤 */
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .top-center::-webkit-scrollbar{
+    height: 6px;
+  }
+}
+
