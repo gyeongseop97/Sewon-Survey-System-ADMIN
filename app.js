@@ -13,6 +13,8 @@ const SUPABASE_URL = "https://pztlmyfutfmbmlvavwuz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_fnGFEvCmhZRRIWj0qrEEeA_Vex3mxac";
 window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const sb = window.sb;
+let setViewModeRef = null;
+let currentAnswersSurvey = null;
 
 // ------------------ Auth UI helpers ------------------
 function showAuthError(msg){
@@ -3759,7 +3761,12 @@ function renderMySurveyList(){
       if (act === "edit") {
         await openSurveyFromServer(id);
       } else if (act === "answers") {
-        alert("(TODO) 제출된 답변 보기 화면/테이블을 연결해야 합니다.\n현재는 설문 리스트 표시까지만 구현되었습니다.");
+  const survey = state.mySurveys.find((x) => x.id === id);
+  if (!survey) {
+    alert("설문 정보를 찾을 수 없습니다.");
+    return;
+  }
+  openSubmittedAnswers(survey);
       } else if (act === "delete") {
   const session = await requireLoginOrModal();
   if (!confirm("정말 삭제하시겠습니까? (삭제 후 복구 불가)")) return;
@@ -3779,11 +3786,123 @@ function renderMySurveyList(){
 
   await loadMySurveys(); // 리스트 새로고침
 }
+document.getElementById("btnAnswersBack")?.addEventListener("click", () => {
+  if (setViewModeRef) setViewModeRef("manage");
+});
 
     } catch (e){
       alert("처리 실패: " + (e?.message || e));
     }
   };
+}
+async function openSubmittedAnswers(survey){
+  currentAnswersSurvey = survey;
+
+  // 화면 이동
+  if (setViewModeRef) setViewModeRef("answers");
+
+  // 제목 표시
+  const titleEl = document.getElementById("submittedSurveyTitle");
+  if (titleEl) titleEl.textContent = `[${survey.title}]`;
+
+  await loadSubmittedAnswersTable();
+}
+
+async function loadSubmittedAnswersTable(){
+  const tbody = document.getElementById("submittedTbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="7" class="muted">불러오는 중...</td></tr>`;
+
+  const surveyId = currentAnswersSurvey?.id;
+  if (!surveyId){
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">설문 정보가 없습니다.</td></tr>`;
+    return;
+  }
+
+  // responses 테이블에서 제출본 조회 (컬럼명이 두 버전일 수 있어서 넓게 처리)
+  let q = sb.from("responses").select("*").eq("survey_id", surveyId);
+
+  // 네 첫번째 스키마: submitted_at 존재
+  // 네 두번째 스키마: status='SUBMITTED' 존재
+  // 둘 다 커버 (에러 나면 그냥 전체에서 걸러냄)
+  const { data, error } = await q;
+  if (error){
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">조회 오류: ${error.message}</td></tr>`;
+    return;
+  }
+
+  const rows = (data || []).filter(r => {
+    const hasSubmittedAt = !!r.submitted_at;
+    const hasStatusSubmitted = (String(r.status || "").toUpperCase() === "SUBMITTED");
+    const hasSubmittedJson = !!r.submitted_json;
+    return hasSubmittedAt || hasStatusSubmitted || hasSubmittedJson;
+  });
+
+  if (rows.length === 0){
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">제출된 답변이 없습니다.</td></tr>`;
+    return;
+  }
+
+  // 점수 계산: submitted_json에 score가 있으면 그거 우선, 없으면 0 표시
+  // (네 사용자용 앱에서 score를 넣도록 해두면 가장 안정적)
+  const getMeta = (obj, keys) => {
+    for (const k of keys){
+      if (obj && obj[k] != null && obj[k] !== "") return obj[k];
+    }
+    return "";
+  };
+
+  tbody.innerHTML = "";
+  rows.forEach((r, idx) => {
+    const submitted = r.submitted_json || r.answers || {};
+    const company = getMeta(submitted, ["company", "companyName", "회사명"]);
+    const name = getMeta(submitted, ["name", "userName", "이름"]);
+    const email = getMeta(submitted, ["email", "userEmail", "아이디"]) || (r.user_id || r.respondent || "");
+
+    const score = getMeta(submitted, ["score", "totalScore", "점수"]) || 0;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${company || "-"}</td>
+      <td>${name || "-"}</td>
+      <td style="word-break:break-all;">${email || "-"}</td>
+      <td>${score}</td>
+      <td><button class="btn btn-edit-response" data-rid="${r.id}">편집</button></td>
+      <td><button class="btn btn-dl-response" data-rid="${r.id}">다운로드</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // 버튼 이벤트(편집/다운로드)
+  tbody.querySelectorAll(".btn-edit-response").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rid = btn.dataset.rid;
+      const found = rows.find(x => x.id === rid);
+      const payload = found?.submitted_json || found?.answers || {};
+      alert("편집(임시):\n\n" + JSON.stringify(payload, null, 2));
+    });
+  });
+
+  tbody.querySelectorAll(".btn-dl-response").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rid = btn.dataset.rid;
+      const found = rows.find(x => x.id === rid);
+      const payload = found?.submitted_json || found?.answers || {};
+      const fileName = `response_${currentAnswersSurvey?.code || "survey"}_${rid}.json`;
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+  });
 }
 
 async function openSurveyFromServer(surveyId){
@@ -3845,6 +3964,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       // ✅ 메뉴(뷰) 이동 시: 스크롤은 부드럽게 최상단으로
       renderWithScrollReset();
     }
+setViewModeRef = setViewMode;
 
     // 메뉴 버튼 바인딩
     document.querySelectorAll(".nav-btn").forEach((btn) => {
