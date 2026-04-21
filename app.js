@@ -5791,7 +5791,7 @@ for (let base=0; base<(g1Rows||[]).length; base+=colsPerRow){
     // ✅ 영역별 점수는 100점 기준(score100Text) 표시
     const v = String(g.score100Text ?? "");
     const isExcluded = v === "배점제외";
-    const show = isExcluded ? "배점제외" : fmtPoint(Number(v)); // ✅ x.x점 통일
+    const show = isExcluded ? "배점제외" : v;
     drawText(show, margin + colW*i + colW/2, y + headH + valH/2, 20, 900, "center", isExcluded ? COLOR.muted : COLOR.ink);
   });
 
@@ -5853,7 +5853,7 @@ for (const g1 of (g1Rows || [])) {
       // ✅ 상세 점수(구분2)도 100점 기준(score100Text) 표시
       const v = String(g.score100Text ?? "");
       const isExcluded = v === "배점제외";
-      const show = isExcluded ? "배점제외" : fmtPoint(Number(v)); // ✅ x.x점 통일
+      const show = isExcluded ? "배점제외" : v;
       drawText(show, margin + g2ColW*i + g2ColW/2, y + g2HeadH + g2ValH/2, 20, 900, "center", isExcluded ? COLOR.muted : COLOR.ink);
     });
 
