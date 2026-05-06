@@ -7457,3 +7457,24 @@ function pdfFromJpegDataUrl(dataUrl, pageWpt, pageHpt){
   return out;
 }
 })();
+
+/* =========================================================
+   프로그램 시작 시 기본 메뉴 = 설문 관리
+   ========================================================= */
+requestAnimationFrame(() => {
+
+  try{
+
+    state.ui.menu = "SURVEYS";
+    state.ui.viewMode = "SURVEYS";
+
+    renderWithScrollReset();
+
+  }catch(e){
+
+    console.error("기본 메뉴 설정 실패", e);
+
+  }
+
+});
+
