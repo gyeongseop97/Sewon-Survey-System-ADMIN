@@ -3811,9 +3811,9 @@ if (btnSave) {
       const result = computeScoreFromSim();
       const totalScore = Number(result?.totalScore ?? 0);
 
-const editedCompany = String(state.sim.company || "").trim();
+const editedCompany = getEditedSimCompanyName() || String(state.sim.company || "").trim();
 
-const newSubmitted = {
+let newSubmitted = {
   ...(state.sim.originalSubmitted || {}),
 
   // ✅ 채점 시뮬레이터의 '피평가 회사명(옵션)' 수정값도 서버에 저장
@@ -3835,6 +3835,9 @@ const newSubmitted = {
   evidenceFiles: state.sim.evidenceFiles || state.sim.originalSubmitted?.evidenceFiles || {},
   score: totalScore
 };
+
+      newSubmitted = applyCompanyNameToSubmittedJson(newSubmitted, editedCompany);
+      if (editedCompany) state.sim.company = editedCompany;
 
       const { error } = await sb
         .from("responses")
@@ -4276,6 +4279,86 @@ async function getMyProfile() {
   }
   return data;
 }
+
+
+function getEditedSimCompanyName(){
+  try{
+    // 1) 우선 state 값
+    let v = String(state?.sim?.company || "").trim();
+    if (v) return v;
+
+    // 2) input id/name/class가 있는 경우 대응
+    const direct = document.querySelector(
+      '#simCompany, #simCompanyName, input[name="simCompany"], input[name="company"], input[data-sim-company], input[data-field="company"]'
+    );
+    if (direct && String(direct.value || "").trim()) {
+      return String(direct.value || "").trim();
+    }
+
+    // 3) 라벨 텍스트가 "피평가 회사명"인 입력칸을 찾아서 읽기
+    const labels = Array.from(document.querySelectorAll("label, .field label, div, span"));
+    for (const el of labels){
+      const txt = String(el.textContent || "").replace(/\s+/g, "");
+      if (txt.includes("피평가회사명")){
+        const wrap = el.closest(".field") || el.parentElement;
+        const input = wrap?.querySelector?.("input, textarea, select");
+        if (input && String(input.value || "").trim()){
+          return String(input.value || "").trim();
+        }
+
+        const nextInput = el.parentElement?.querySelector?.("input, textarea, select");
+        if (nextInput && String(nextInput.value || "").trim()){
+          return String(nextInput.value || "").trim();
+        }
+      }
+    }
+
+    // 4) 시뮬레이터 영역 내 첫 번째 긴 텍스트 입력칸 fallback
+    const simRoot = document.querySelector("#simulator, .simulator, .preview, .canvas");
+    const inputs = Array.from(simRoot?.querySelectorAll?.("input[type='text'], input:not([type]), textarea") || []);
+    const companyLike = inputs.find(input => {
+      const val = String(input.value || "").trim();
+      return val && val.length >= 2 && !val.includes("@");
+    });
+    if (companyLike) return String(companyLike.value || "").trim();
+
+  }catch(e){
+    console.warn("[company] getEditedSimCompanyName failed", e);
+  }
+
+  return "";
+}
+
+function applyCompanyNameToSubmittedJson(submitted, companyName){
+  const out = { ...(submitted || {}) };
+  const name = String(companyName || "").trim();
+
+  if (!name) return out;
+
+  out.company = name;
+  out.company_name = name;
+  out.companyName = name;
+  out["회사명"] = name;
+
+  out.target = {
+    ...(out.target || {}),
+    company: name,
+    company_name: name,
+    companyName: name,
+    "회사명": name
+  };
+
+  out.meta = {
+    ...(out.meta || {}),
+    company: name,
+    company_name: name,
+    companyName: name,
+    "회사명": name
+  };
+
+  return out;
+}
+
 
 async function saveSurveyToServer() {
   // 1) 로그인/권한 체크
@@ -7498,4 +7581,24 @@ requestAnimationFrame(() => {
   }
 
 });
+
+
+
+document.addEventListener("input", (e) => {
+  try{
+    const t = e.target;
+    if (!t || !("value" in t)) return;
+
+    const marker = String(t.id || "") + " " + String(t.name || "") + " " + String(t.dataset?.field || "") + " " + String(t.dataset?.simCompany || "");
+    const parentText = String(t.closest?.(".field")?.textContent || t.parentElement?.textContent || "").replace(/\s+/g, "");
+
+    if (
+      marker.toLowerCase().includes("company") ||
+      parentText.includes("피평가회사명")
+    ){
+      state.sim = state.sim || {};
+      state.sim.company = String(t.value || "").trim();
+    }
+  }catch(_){}
+}, true);
 
