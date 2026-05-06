@@ -3266,6 +3266,96 @@ function ensureSimAnswer(q) {
   return ans;
 }
 
+
+function syncSimAnswersFromDom(){
+  try{
+    if (!state?.sim?.answers) return;
+
+    for (const { q } of allQuestions()){
+      if (!q?.id) continue;
+      ensureQuestionSpec(q);
+
+      const qid = q.id;
+      const ans = ensureSimAnswer(q);
+      const safeId = (window.CSS && CSS.escape) ? CSS.escape(qid) : String(qid).replace(/"/g, '\\"');
+
+      const controls = document.querySelector(`#sim_controls_${safeId}`);
+      if (controls){
+        const checkedRadio = controls.querySelector(`input[name="norm_${safeId}"]:checked`);
+        if (checkedRadio) ans.norm = checkedRadio.value;
+
+        // 체크박스 항목
+        const checkSet = new Set();
+        controls.querySelectorAll(`input[data-k^="c_"]`).forEach(cb => {
+          const idx = Number(String(cb.getAttribute("data-k") || "").slice(2));
+          if (cb.checked && Number.isFinite(idx)) checkSet.add(idx);
+        });
+        ans.checks = checkSet;
+
+        // 주관식/체크+주관식 필드
+        ans.fields = ans.fields || {};
+        controls.querySelectorAll(`input[data-k^="f_"], textarea[data-k^="f_"]`).forEach(inp => {
+          const key = String(inp.getAttribute("data-k") || "").slice(2);
+          ans.fields[key] = inp.value || "";
+        });
+        controls.querySelectorAll(`input[data-k^="ft_"], textarea[data-k^="ft_"]`).forEach(inp => {
+          const key = String(inp.getAttribute("data-k") || "").slice(3);
+          ans.fields[key] = inp.value || "";
+        });
+      }
+
+      // 수동점수 영역
+      const manual = document.querySelector(`#sim_manual_${safeId}`);
+      if (manual) ans.manualEnabled = !!manual.checked;
+
+      const manualScore = document.querySelector(`#ms_${safeId}`);
+      if (manualScore) ans.manualScore = Number(manualScore.value || 0);
+
+      const manualReject = document.querySelector(`#mr_${safeId}`);
+      if (manualReject) ans.manualReject = !!manualReject.checked;
+    }
+
+    const companyInput = document.querySelector("#sim_company");
+    if (companyInput) state.sim.company = String(companyInput.value || "").trim();
+
+  }catch(e){
+    console.warn("[sim] syncSimAnswersFromDom failed", e);
+  }
+}
+
+async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
+  if (!rid) throw new Error("응답 ID가 없습니다.");
+
+  // 1차: submitted_json + score 업데이트 후 실제 반영 행 반환 검증
+  const { data, error } = await sb
+    .from("responses")
+    .update({
+      submitted_json: newSubmitted,
+      score: totalScore
+    })
+    .eq("id", rid)
+    .select("id, submitted_json, score")
+    .single();
+
+  if (error) throw error;
+  if (!data?.id) throw new Error("서버 업데이트 대상 행을 찾지 못했습니다.");
+
+  // 2차: 혹시 USER 앱/구버전에서 answers 컬럼을 보는 구조라면 함께 갱신 시도
+  // answers 컬럼이 없거나 RLS로 막혀도 submitted_json 저장은 완료된 상태이므로 치명 오류로 보지 않음.
+  try{
+    await sb
+      .from("responses")
+      .update({
+        answers: newSubmitted
+      })
+      .eq("id", rid);
+  }catch(e){
+    console.warn("[responses] optional answers column update skipped", e);
+  }
+
+  return data;
+}
+
 function serializeSimAnswers() {
   const out = {};
   for (const [qid, a] of Object.entries(state.sim.answers)) {
@@ -3808,6 +3898,9 @@ if (btnSave) {
     if (!rid) return;
 
     try {
+      // ✅ 저장 직전, 현재 화면에 보이는 입력값을 state.sim.answers로 강제 동기화
+      syncSimAnswersFromDom();
+
       const result = computeScoreFromSim();
       const totalScore = Number(result?.totalScore ?? 0);
 
@@ -3840,18 +3933,14 @@ let newSubmitted = {
       newSubmitted = forceCompanyNameIntoAnswersPayload(newSubmitted, editedCompany);
       if (editedCompany) state.sim.company = editedCompany;
 
-      const { error } = await sb
-        .from("responses")
-        .update({
-          submitted_json: newSubmitted,
-          score: totalScore
-        })
-        .eq("id", rid);
-
-      if (error) throw error;
+      // ✅ 서버 반영 후 실제 업데이트된 행을 다시 받아 검증
+      await updateSubmittedResponseOnServer(rid, newSubmitted, totalScore);
 
       // ✅ 저장 직후 현재 편집본도 최신값으로 갱신
       state.sim.originalSubmitted = newSubmitted;
+
+      // ✅ 제출 답변 리스트/종합결과에서 다시 열었을 때 최신값이 보이도록 캐시 무효화
+      window.__submittedAnswersTableCache = null;
 
       alert("저장 완료 (서버 반영됨)");
     } catch (e) {
