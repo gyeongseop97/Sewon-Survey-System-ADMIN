@@ -3343,12 +3343,16 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
   // 2차: 혹시 USER 앱/구버전에서 answers 컬럼을 보는 구조라면 함께 갱신 시도
   // answers 컬럼이 없거나 RLS로 막혀도 submitted_json 저장은 완료된 상태이므로 치명 오류로 보지 않음.
   try{
-    await sb
+    const { error: ansErr } = await sb
       .from("responses")
       .update({
         answers: newSubmitted
       })
       .eq("id", rid);
+
+    if (ansErr) {
+      console.warn("[responses] optional answers column update skipped", ansErr);
+    }
   }catch(e){
     console.warn("[responses] optional answers column update skipped", e);
   }
@@ -3941,6 +3945,10 @@ let newSubmitted = {
 
       // ✅ 제출 답변 리스트/종합결과에서 다시 열었을 때 최신값이 보이도록 캐시 무효화
       window.__submittedAnswersTableCache = null;
+
+      // ✅ 저장 후 즉시 화면의 시뮬레이터 상태도 저장본 기준으로 유지
+      state.sim.answers = convertUserAnswersToSimForReport(state.survey, newSubmitted.answers || {});
+      state.sim.originalSubmitted = newSubmitted;
 
       alert("저장 완료 (서버 반영됨)");
     } catch (e) {
@@ -6986,7 +6994,15 @@ function convertUserAnswersToSimForReport(surveyJson, payloadAnswers){
       norm: ua.norm || "",
       text: ua.text || "",
       fields: ua.fields || {},
-      checks: new Set()
+      checks: new Set(),
+
+      // ✅ 관리자 편집 저장값 보존
+      // 기존 변환 로직이 이 값을 버려서 저장 후 다시 열면 수동점수/미인정 수정이 반영되지 않는 문제가 있었음
+      checkReject: new Set(Array.isArray(ua.checkReject) ? ua.checkReject : []),
+      fieldReject: new Set(Array.isArray(ua.fieldReject) ? ua.fieldReject : []),
+      manualEnabled: !!ua.manualEnabled,
+      manualReject: !!ua.manualReject,
+      manualScore: Number(ua.manualScore || 0)
     };
 
     const rawChecks = Array.isArray(ua.checks) ? ua.checks : [];
