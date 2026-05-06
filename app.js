@@ -3323,47 +3323,81 @@ function syncSimAnswersFromDom(){
   }
 }
 
-async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
+async async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
   if (!rid) throw new Error("응답 ID가 없습니다.");
 
-  // 1차: submitted_json + score 업데이트 후 실제 반영 행 반환 검증
-  const { error } = await sb
-    .from("responses")
-    .update({
-      submitted_json: newSubmitted,
-      score: totalScore
-    })
-    .eq("id", rid);
+  const payload = {
+    submitted_json: newSubmitted,
+    score: totalScore
+  };
 
-  const data = null;
+  const row = state?.sim?.responseRow || null;
 
-  if (error) throw error;
-  const updatedRow = Array.isArray(data) ? data[0] : data;
+  async function runUpdate(label, builder){
+    const { error, count } = await builder.update(payload, { count: "exact" });
 
-  // Supabase RLS / returning 설정에 따라 update 후 빈 배열이 반환될 수 있음.
-  // error가 없으면 실제 update는 성공한 것으로 간주한다.
-  if (!updatedRow?.id) {
-    console.warn("[responses] update returned empty row; treating as success");
+    if (error) {
+      console.error(`[responses] ${label} update error`, error);
+      throw error;
+    }
+
+    console.log(`[responses] ${label} update count`, count);
+    return Number(count || 0);
   }
 
-  // 2차: 혹시 USER 앱/구버전에서 answers 컬럼을 보는 구조라면 함께 갱신 시도
-  // answers 컬럼이 없거나 RLS로 막혀도 submitted_json 저장은 완료된 상태이므로 치명 오류로 보지 않음.
-  try{
-    const { error: ansErr } = await sb
-      .from("responses")
-      .update({
-        answers: newSubmitted
-      })
-      .eq("id", rid);
+  // 1차: id 기준 업데이트
+  let updatedCount = 0;
 
-    if (ansErr) {
-      console.warn("[responses] optional answers column update skipped", ansErr);
+  try{
+    updatedCount = await runUpdate(
+      "id",
+      sb.from("responses").eq("id", rid)
+    );
+  }catch(e){
+    throw e;
+  }
+
+  // Supabase 설정에 따라 count가 null일 수 있음. null이면 성공으로 간주하되,
+  // count=0이면 실제 대상 행을 못 찾은 것이므로 보조 조건으로 재시도.
+  if (updatedCount === 0 && row){
+    const surveyId = row.survey_id || currentAnswersSurvey?.id || null;
+    const userId = row.user_id || null;
+    const email = row.respondent_email || row.email || null;
+
+    if (surveyId && userId){
+      updatedCount = await runUpdate(
+        "survey_id+user_id",
+        sb.from("responses").eq("survey_id", surveyId).eq("user_id", userId)
+      );
     }
+
+    if (updatedCount === 0 && surveyId && email){
+      updatedCount = await runUpdate(
+        "survey_id+respondent_email",
+        sb.from("responses").eq("survey_id", surveyId).eq("respondent_email", email)
+      );
+    }
+  }
+
+  // 2차: 혹시 구버전 화면이 answers 컬럼을 읽는 구조면 함께 갱신 시도
+  // answers 컬럼이 없거나 정책상 막혀도 submitted_json 저장 자체는 유지.
+  try{
+    let q = sb.from("responses").update({ answers: newSubmitted });
+
+    if (row?.id || rid) q = q.eq("id", row?.id || rid);
+    else if (row?.survey_id && row?.user_id) q = q.eq("survey_id", row.survey_id).eq("user_id", row.user_id);
+
+    const { error: ansErr } = await q;
+    if (ansErr) console.warn("[responses] optional answers column update skipped", ansErr);
   }catch(e){
     console.warn("[responses] optional answers column update skipped", e);
   }
 
-  return data;
+  if (updatedCount === 0){
+    throw new Error("서버 업데이트 대상 행을 찾지 못했습니다. 응답 ID 또는 권한을 확인해야 합니다.");
+  }
+
+  return true;
 }
 
 function serializeSimAnswers() {
@@ -6523,6 +6557,7 @@ const tr = document.createElement("tr");
         state.sim = state.sim || { enabled:true, answers:{} };
         state.sim.enabled = true;
 state.sim.responseRid = rid;
+state.sim.responseRow = found || null;
 state.sim.originalSubmitted = submitted;
 state.sim.evidenceFiles = submitted.evidenceFiles || {};
 
@@ -7796,7 +7831,7 @@ document.addEventListener("input", (e) => {
 
 
 /* =========================================================
-   기본 메뉴: 설문 관리 (안전 초기화)
+   기본 메뉴: 설문 관리 (state 생성 후 안전 실행)
    ========================================================= */
 window.addEventListener("load", () => {
   try{
@@ -7806,10 +7841,11 @@ window.addEventListener("load", () => {
 
       if (typeof renderWithScrollReset === "function"){
         renderWithScrollReset();
+      } else if (typeof render === "function"){
+        render();
       }
     }
   }catch(e){
     console.warn("기본 메뉴 설정 실패", e);
   }
 });
-
