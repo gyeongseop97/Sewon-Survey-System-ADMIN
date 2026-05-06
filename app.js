@@ -3334,11 +3334,14 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
       score: totalScore
     })
     .eq("id", rid)
-    .select("id, submitted_json, score")
-    .single();
+    .select("id, submitted_json, score");
 
   if (error) throw error;
-  if (!data?.id) throw new Error("서버 업데이트 대상 행을 찾지 못했습니다.");
+  const updatedRow = Array.isArray(data) ? data[0] : data;
+
+  if (!updatedRow?.id) {
+    throw new Error("서버 업데이트 대상 행을 찾지 못했습니다.");
+  }
 
   // 2차: 혹시 USER 앱/구버전에서 answers 컬럼을 보는 구조라면 함께 갱신 시도
   // answers 컬럼이 없거나 RLS로 막혀도 submitted_json 저장은 완료된 상태이므로 치명 오류로 보지 않음.
@@ -7769,28 +7772,6 @@ function pdfFromJpegDataUrl(dataUrl, pageWpt, pageHpt){
 }
 })();
 
-/* =========================================================
-   프로그램 시작 시 기본 메뉴 = 설문 관리
-   ========================================================= */
-requestAnimationFrame(() => {
-
-  try{
-
-    state.ui.menu = "SURVEYS";
-    state.ui.viewMode = "SURVEYS";
-
-    renderWithScrollReset();
-
-  }catch(e){
-
-    console.error("기본 메뉴 설정 실패", e);
-
-  }
-
-});
-
-
-
 document.addEventListener("input", (e) => {
   try{
     const t = e.target;
@@ -7808,4 +7789,24 @@ document.addEventListener("input", (e) => {
     }
   }catch(_){}
 }, true);
+
+
+
+/* =========================================================
+   기본 메뉴: 설문 관리 (안전 초기화)
+   ========================================================= */
+window.addEventListener("load", () => {
+  try{
+    if (typeof state !== "undefined" && state?.ui){
+      state.ui.menu = "SURVEYS";
+      state.ui.viewMode = "SURVEYS";
+
+      if (typeof renderWithScrollReset === "function"){
+        renderWithScrollReset();
+      }
+    }
+  }catch(e){
+    console.warn("기본 메뉴 설정 실패", e);
+  }
+});
 
