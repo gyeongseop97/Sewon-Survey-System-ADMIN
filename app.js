@@ -3333,8 +3333,14 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
 
   const row = state?.sim?.responseRow || null;
 
-  async function runUpdate(label, builder){
-    const { error, count } = await builder.update(payload, { count: "exact" });
+  async function runUpdate(label, applyFilter){
+    let q = sb
+      .from("responses")
+      .update(payload, { count: "exact" });
+
+    q = applyFilter(q);
+
+    const { error, count } = await q;
 
     if (error) {
       console.error(`[responses] ${label} update error`, error);
@@ -3342,23 +3348,18 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
     }
 
     console.log(`[responses] ${label} update count`, count);
-    return Number(count || 0);
+
+    // count가 null인 경우도 있음. null이면 성공 여부를 count로 판단하지 않음.
+    return count === null || typeof count === "undefined" ? null : Number(count || 0);
   }
 
   // 1차: id 기준 업데이트
-  let updatedCount = 0;
+  let updatedCount = await runUpdate("id", q => q.eq("id", rid));
 
-  try{
-    updatedCount = await runUpdate(
-      "id",
-      sb.from("responses").eq("id", rid)
-    );
-  }catch(e){
-    throw e;
-  }
+  // Supabase 설정에 따라 count가 null일 수 있음 → null은 성공으로 간주
+  if (updatedCount === null) return true;
 
-  // Supabase 설정에 따라 count가 null일 수 있음. null이면 성공으로 간주하되,
-  // count=0이면 실제 대상 행을 못 찾은 것이므로 보조 조건으로 재시도.
+  // count=0이면 보조 조건으로 재시도
   if (updatedCount === 0 && row){
     const surveyId = row.survey_id || currentAnswersSurvey?.id || null;
     const userId = row.user_id || null;
@@ -3367,27 +3368,34 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
     if (surveyId && userId){
       updatedCount = await runUpdate(
         "survey_id+user_id",
-        sb.from("responses").eq("survey_id", surveyId).eq("user_id", userId)
+        q => q.eq("survey_id", surveyId).eq("user_id", userId)
       );
+      if (updatedCount === null || updatedCount > 0) return true;
     }
 
-    if (updatedCount === 0 && surveyId && email){
+    if (surveyId && email){
       updatedCount = await runUpdate(
         "survey_id+respondent_email",
-        sb.from("responses").eq("survey_id", surveyId).eq("respondent_email", email)
+        q => q.eq("survey_id", surveyId).eq("respondent_email", email)
       );
+      if (updatedCount === null || updatedCount > 0) return true;
     }
   }
 
-  // 2차: 혹시 구버전 화면이 answers 컬럼을 읽는 구조면 함께 갱신 시도
+  // 혹시 구버전 화면이 answers 컬럼을 읽는 구조면 함께 갱신 시도
   // answers 컬럼이 없거나 정책상 막혀도 submitted_json 저장 자체는 유지.
   try{
-    let q = sb.from("responses").update({ answers: newSubmitted });
+    let aq = sb
+      .from("responses")
+      .update({ answers: newSubmitted });
 
-    if (row?.id || rid) q = q.eq("id", row?.id || rid);
-    else if (row?.survey_id && row?.user_id) q = q.eq("survey_id", row.survey_id).eq("user_id", row.user_id);
+    if (row?.id || rid) {
+      aq = aq.eq("id", row?.id || rid);
+    } else if (row?.survey_id && row?.user_id) {
+      aq = aq.eq("survey_id", row.survey_id).eq("user_id", row.user_id);
+    }
 
-    const { error: ansErr } = await q;
+    const { error: ansErr } = await aq;
     if (ansErr) console.warn("[responses] optional answers column update skipped", ansErr);
   }catch(e){
     console.warn("[responses] optional answers column update skipped", e);
