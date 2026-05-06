@@ -1258,3 +1258,441 @@ body{
   grid-template-rows: 0fr;
   opacity: 0;
 }
+
+/* ================================
+   제출된 답변 종합 결과 스타일
+   실제 JS 구조 대응용
+   ================================ */
+
+#submittedOverallResultPanel{
+  overflow: visible !important;
+  padding: 18px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(15,23,42,.04),
+    0 12px 32px rgba(15,23,42,.06);
+}
+
+/* 상단 통계 카드 */
+#submittedOverallResultPanel .stat-card{
+  background: linear-gradient(180deg,#fff,#fafbff);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  min-height: 76px;
+  box-shadow: 0 6px 18px rgba(15,23,42,.04);
+}
+
+#submittedOverallResultPanel .stat-card b{
+  display:block;
+  margin-top:6px;
+  font-size:22px;
+  font-weight:900;
+  letter-spacing:-.5px;
+}
+
+/* 그래프 박스 */
+#submittedScatterChart,
+#submittedPieChart{
+  background: #fff;
+  border-radius: 16px;
+}
+
+#submittedScatterChart{
+  overflow: visible !important;
+  min-height: 330px;
+}
+
+/* 곡선 그래프 */
+#submittedScatterChart svg{
+  overflow: visible !important;
+  color: #845EC2;
+}
+
+#submittedScatterChart path[stroke]{
+  stroke-width: 4 !important;
+  filter: drop-shadow(0 4px 8px rgba(132,94,194,.18));
+}
+
+#submittedScatterChart circle{
+  transition: all .15s ease;
+  cursor: pointer;
+}
+
+#submittedScatterChart g:hover circle{
+  r: 7;
+  opacity: 1 !important;
+  fill: #D65DB1;
+}
+
+/* 구분1/구분2 통계표 */
+#submittedOverallResultPanel .mini-table{
+  width:100%;
+  border-collapse:separate !important;
+  border-spacing:0;
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:hidden;
+  background:#fff;
+}
+
+#submittedOverallResultPanel .mini-table thead th{
+  background:linear-gradient(180deg,#fff,#fafbff);
+  color:var(--muted);
+  font-size:12px;
+  font-weight:900;
+  padding:12px 14px !important;
+  border-bottom:1px solid var(--line) !important;
+}
+
+#submittedOverallResultPanel .mini-table tbody td{
+  padding:12px 14px !important;
+  border-bottom:1px solid #f1f5f9 !important;
+  font-size:13px;
+}
+
+#submittedOverallResultPanel .mini-table tbody tr:hover{
+  background:#fafbff;
+}
+
+#submittedOverallResultPanel .mini-table tbody tr:last-child td{
+  border-bottom:none !important;
+}
+
+/* 항목 클릭 버튼 */
+#submittedOverallResultPanel .link-btn{
+  color:#111827 !important;
+  text-decoration:none !important;
+  font-weight:800 !important;
+}
+
+#submittedOverallResultPanel .link-btn:hover{
+  color:#D65DB1 !important;
+  text-decoration:underline !important;
+}
+
+/* 전체 점수 보기 버튼 활성 느낌 */
+#submittedOverallResultPanel [data-score-chart]{
+  transition:.15s ease;
+}
+
+#submittedOverallResultPanel [data-score-chart]:hover{
+  transform:translateY(-1px);
+}
+
+/* =========================================================
+   제출된 답변 보기 - 종합 결과 리스트/정렬 헤더
+   ========================================================= */
+.view-answers .tbl th.submitted-sortable-th{
+  cursor:pointer;
+  user-select:none;
+  transition:background .15s ease, color .15s ease;
+}
+
+.view-answers .tbl th.submitted-sortable-th:hover{
+  background:#f2f3ff !important;
+  color:var(--p1);
+}
+
+.view-answers .tbl th,
+.view-answers .tbl td{
+  white-space:nowrap;
+}
+
+.view-answers .tbl td{
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+
+
+/* 제출 요약 리스트 정렬: 재로딩 없이 즉시 정렬 */
+.view-answers .tbl th.submitted-sortable-th{
+  cursor:pointer;
+  user-select:none;
+}
+.view-answers .tbl th.submitted-sortable-th:hover{
+  background:#f2f3ff !important;
+  color:var(--p1);
+}
+
+
+/* =========================================================
+   제출된 답변 종합 결과 - 그래프 컬러/크기 보정 FINAL
+   ========================================================= */
+
+/* 좌측 실제 분포 곡선: 팔레트 보라 */
+#submittedScatterChart .real-distribution-line{
+  stroke: var(--p1) !important;
+  stroke-width: 2.35 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  opacity: .92 !important;
+  filter: drop-shadow(0 2px 5px rgba(132,94,194,.14)) !important;
+}
+
+/* 정규분포 보조선: 마젠타 점선 */
+#submittedScatterChart .normal-distribution-line{
+  stroke: var(--p2) !important;
+  stroke-width: 1.75 !important;
+  stroke-dasharray: 7 6 !important;
+  opacity: .66 !important;
+  filter: drop-shadow(0 1px 3px rgba(214,93,177,.10)) !important;
+}
+
+/* 실제 분포 면 */
+#submittedScatterChart .real-distribution-area{
+  fill: var(--p1) !important;
+  opacity: .045 !important;
+}
+
+/* 분포 점 */
+#submittedScatterChart circle{
+  fill:#fff !important;
+  stroke:var(--p1) !important;
+  stroke-width:2 !important;
+  transition:all .16s ease !important;
+  cursor:pointer !important;
+}
+
+#submittedScatterChart g:hover circle{
+  r:6.5 !important;
+  fill:var(--p3) !important;
+  stroke:#fff !important;
+  filter:drop-shadow(0 2px 6px rgba(255,111,145,.25)) !important;
+}
+
+/* 점 위 숫자 */
+#submittedScatterChart text{
+  fill:#4b5563;
+  font-weight:800;
+}
+
+/* 원형 그래프 카드 영역 */
+#submittedPieChart{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:300px !important;
+  max-height:360px !important;
+  overflow:visible !important;
+}
+
+/* 원형 그래프 전체 배치 */
+#submittedPieChart .submitted-pie-wrap{
+  width:100%;
+  display:flex;
+  gap:22px;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:nowrap;
+}
+
+/* 원형 그래프 크기 축소 */
+#submittedPieChart .submitted-pie-svg{
+  width:210px !important;
+  height:210px !important;
+  max-width:210px !important;
+  flex:0 0 210px !important;
+  overflow:visible !important;
+}
+
+/* 파스텔 조각 */
+#submittedPieChart .submitted-pie-slice{
+  opacity:.68 !important;
+  cursor:pointer;
+  transition:
+    opacity .16s ease,
+    transform .16s ease,
+    filter .16s ease;
+  transform-origin:96px 104px;
+  filter:saturate(.86) brightness(1.04) !important;
+}
+
+#submittedPieChart .submitted-pie-slice:hover{
+  opacity:.88 !important;
+  transform:scale(1.018);
+  filter:
+    saturate(1)
+    brightness(1.03)
+    drop-shadow(0 4px 10px rgba(15,23,42,.10)) !important;
+}
+
+/* 원형 그래프 숫자 */
+#submittedPieChart .submitted-pie-count{
+  font-weight:900;
+  pointer-events:auto;
+  cursor:pointer;
+  fill:#111827 !important;
+}
+
+/* 가운데 숫자 */
+#submittedPieChart .submitted-pie-svg text{
+  font-family: Arial, "Noto Sans KR", sans-serif;
+}
+
+/* 범례 */
+#submittedPieChart .submitted-pie-legend{
+  min-width:160px;
+  max-width:220px;
+  flex:0 0 auto;
+}
+
+#submittedPieChart .submitted-pie-legend-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:14px;
+  font-size:12px;
+  margin-top:7px;
+  padding:5px 6px;
+  border-radius:9px;
+  cursor:pointer;
+  transition:background .15s ease, transform .15s ease;
+}
+
+#submittedPieChart .submitted-pie-legend-item:hover{
+  background:#f9fafb;
+  transform:translateX(2px);
+}
+
+#submittedPieChart .submitted-pie-legend-left{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  white-space:nowrap;
+}
+
+#submittedPieChart .submitted-pie-color-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  display:inline-block;
+  box-shadow:0 0 0 3px rgba(17,24,39,.04);
+}
+
+#submittedPieChart .submitted-pie-legend-item b{
+  font-weight:900;
+  white-space:nowrap;
+}
+
+/* 좁은 화면에서는 세로 배치 */
+@media (max-width: 1100px){
+  #submittedPieChart .submitted-pie-wrap{
+    flex-wrap:wrap;
+  }
+  #submittedPieChart .submitted-pie-svg{
+    width:190px !important;
+    height:190px !important;
+    max-width:190px !important;
+    flex-basis:190px !important;
+  }
+}
+
+
+
+/* =========================================================
+   종합 결과 상세 통계 접기/펼치기 + 최고/최저값 밑줄 제거
+   ========================================================= */
+.submitted-collapse-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-top:18px;
+  margin-bottom:10px;
+  cursor:pointer;
+  user-select:none;
+}
+
+.submitted-collapse-header h3{
+  margin:0;
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:-.2px;
+}
+
+.submitted-collapse-body{
+  display:block;
+}
+
+.submitted-collapse-btn{
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:999px;
+  padding:6px 12px;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease, transform .15s ease;
+  white-space:nowrap;
+}
+
+.submitted-collapse-btn:hover{
+  background:#fafbff;
+  border-color:var(--p1);
+  transform:translateY(-1px);
+}
+
+/* 항목명 클릭 버튼: 밑줄 제거 */
+#submittedOverallResultPanel .submitted-score-link,
+#submittedOverallResultPanel .link-btn{
+  background:none !important;
+  border:0 !important;
+  padding:0 !important;
+  color:inherit !important;
+  text-decoration:none !important;
+  cursor:pointer !important;
+  font:inherit !important;
+  font-weight:700 !important;
+}
+
+#submittedOverallResultPanel .submitted-score-link:hover,
+#submittedOverallResultPanel .link-btn:hover{
+  color:var(--p2) !important;
+  text-decoration:none !important;
+}
+
+/* 최고값/최저값: 볼드/언더라인 제거, hover는 살짝만 */
+#submittedOverallResultPanel .submitted-extreme-cell{
+  font-weight:400 !important;
+  text-decoration:none !important;
+  cursor:default;
+}
+
+#submittedOverallResultPanel .submitted-extreme-cell:hover{
+  background:#fafbff;
+}
+
+
+/* =========================================================
+   회사별 상세 점수 - 순위 / 상위 백분위
+   ========================================================= */
+
+.submitted-rank-wrap{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  line-height:1.15;
+}
+
+.submitted-rank-no{
+  font-size:14px;
+  font-weight:900;
+  color:#111827;
+}
+
+.submitted-rank-percentile{
+  margin-top:3px;
+  font-size:10px;
+  font-weight:700;
+  color:#6b7280;
+  white-space:nowrap;
+}
+
+.submitted-score-main{
+  font-variant-numeric:tabular-nums;
+  font-weight:800;
+}
