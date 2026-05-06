@@ -3323,7 +3323,7 @@ function syncSimAnswersFromDom(){
   }
 }
 
-async async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
+async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
   if (!rid) throw new Error("응답 ID가 없습니다.");
 
   const payload = {
