@@ -3837,6 +3837,7 @@ let newSubmitted = {
 };
 
       newSubmitted = applyCompanyNameToSubmittedJson(newSubmitted, editedCompany);
+      newSubmitted = forceCompanyNameIntoAnswersPayload(newSubmitted, editedCompany);
       if (editedCompany) state.sim.company = editedCompany;
 
       const { error } = await sb
@@ -4327,6 +4328,107 @@ function getEditedSimCompanyName(){
   }
 
   return "";
+}
+
+
+function forceCompanyNameIntoAnswersPayload(payload, companyName){
+  const name = String(companyName || "").trim();
+  if (!name || !payload) return payload;
+
+  const companyKeys = [
+    "회사명",
+    "피평가 회사명",
+    "피평가회사명",
+    "company",
+    "company_name",
+    "companyName",
+    "corpName",
+    "organization",
+    "organization_name"
+  ];
+
+  const looksCompanyKey = (key) => {
+    const k = String(key || "").replace(/\s+/g, "").toLowerCase();
+    return companyKeys.some(x => k.includes(String(x).replace(/\s+/g, "").toLowerCase()));
+  };
+
+  const looksCompanyQuestion = (obj) => {
+    if (!obj || typeof obj !== "object") return false;
+    const text = [
+      obj.title,
+      obj.label,
+      obj.question,
+      obj.questionText,
+      obj.name,
+      obj.key,
+      obj.code,
+      obj.path
+    ].map(v => String(v || "")).join(" ").replace(/\s+/g, "");
+    return text.includes("회사명") || text.includes("피평가회사명") || text.toLowerCase().includes("company");
+  };
+
+  const setAnswerObject = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+
+    // 가장 흔한 답변 저장 필드들
+    if ("answer" in obj) obj.answer = name;
+    if ("value" in obj) obj.value = name;
+    if ("text" in obj) obj.text = name;
+    if ("input" in obj) obj.input = name;
+    if ("response" in obj) obj.response = name;
+    if ("selected" in obj && typeof obj.selected === "string") obj.selected = name;
+
+    // 필드가 하나도 없으면 value를 만들어 둔다.
+    if (!("answer" in obj) && !("value" in obj) && !("text" in obj) && !("input" in obj) && !("response" in obj)) {
+      obj.value = name;
+    }
+  };
+
+  const walk = (obj, parentKey = "") => {
+    if (!obj || typeof obj !== "object") return;
+
+    if (Array.isArray(obj)) {
+      obj.forEach((item, idx) => walk(item, String(idx)));
+      return;
+    }
+
+    // key 자체가 회사명 계열이면 직접 덮어쓰기
+    Object.keys(obj).forEach(key => {
+      const val = obj[key];
+
+      if (looksCompanyKey(key)) {
+        if (val && typeof val === "object") {
+          setAnswerObject(val);
+          walk(val, key);
+        } else {
+          obj[key] = name;
+        }
+        return;
+      }
+
+      // 질문 객체 내부 제목이 회사명 계열이면 답변값 덮어쓰기
+      if (val && typeof val === "object" && looksCompanyQuestion(val)) {
+        setAnswerObject(val);
+      }
+
+      walk(val, key);
+    });
+
+    // 현재 객체 자체가 회사명 질문 객체인 경우
+    if (looksCompanyQuestion(obj)) {
+      setAnswerObject(obj);
+    }
+  };
+
+  try{
+    // submitted_json.answers 내부 및 전체 payload 모두 처리
+    if (payload.answers) walk(payload.answers);
+    walk(payload);
+  }catch(e){
+    console.warn("[company] forceCompanyNameIntoAnswersPayload failed", e);
+  }
+
+  return payload;
 }
 
 function applyCompanyNameToSubmittedJson(submitted, companyName){
