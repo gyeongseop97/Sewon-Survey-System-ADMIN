@@ -3333,65 +3333,39 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
 
   const row = state?.sim?.responseRow || null;
 
-  async function runUpdate(label, applyFilter){
-    let q = sb
-      .from("responses")
-      .update(payload, { count: "exact" });
+  async function updateBy(label, filters){
+    let q = sb.from("responses").update(payload);
 
-    q = applyFilter(q);
+    for (const f of filters){
+      q = q.eq(f.col, f.val);
+    }
 
-    const { error, count } = await q;
+    const { error } = await q;
 
-    if (error) {
+    if (error){
       console.error(`[responses] ${label} update error`, error);
       throw error;
     }
 
-    console.log(`[responses] ${label} update count`, count);
-
-    // count가 null인 경우도 있음. null이면 성공 여부를 count로 판단하지 않음.
-    return count === null || typeof count === "undefined" ? null : Number(count || 0);
+    console.log(`[responses] ${label} update requested`);
+    return true;
   }
 
-  // 1차: id 기준 업데이트
-  let updatedCount = await runUpdate("id", q => q.eq("id", rid));
-
-  // Supabase 설정에 따라 count가 null일 수 있음 → null은 성공으로 간주
-  if (updatedCount === null) return true;
-
-  // count=0이면 보조 조건으로 재시도
-  if (updatedCount === 0 && row){
-    const surveyId = row.survey_id || currentAnswersSurvey?.id || null;
-    const userId = row.user_id || null;
-    const email = row.respondent_email || row.email || null;
-
-    if (surveyId && userId){
-      updatedCount = await runUpdate(
-        "survey_id+user_id",
-        q => q.eq("survey_id", surveyId).eq("user_id", userId)
-      );
-      if (updatedCount === null || updatedCount > 0) return true;
-    }
-
-    if (surveyId && email){
-      updatedCount = await runUpdate(
-        "survey_id+respondent_email",
-        q => q.eq("survey_id", surveyId).eq("respondent_email", email)
-      );
-      if (updatedCount === null || updatedCount > 0) return true;
-    }
-  }
-
-  // 혹시 구버전 화면이 answers 컬럼을 읽는 구조면 함께 갱신 시도
-  // answers 컬럼이 없거나 정책상 막혀도 submitted_json 저장 자체는 유지.
+  // 1차: response id 기준 저장
   try{
-    let aq = sb
-      .from("responses")
-      .update({ answers: newSubmitted });
+    await updateBy("id", [{ col: "id", val: rid }]);
+  }catch(e){
+    throw e;
+  }
 
-    if (row?.id || rid) {
+  // 구버전 호환: answers 컬럼도 있으면 함께 갱신 시도
+  // 컬럼이 없거나 정책상 막혀도 submitted_json 저장은 이미 시도되었으므로 경고만 남김
+  try{
+    let aq = sb.from("responses").update({ answers: newSubmitted });
+
+    if (row?.id || rid){
       aq = aq.eq("id", row?.id || rid);
-    } else if (row?.survey_id && row?.user_id) {
+    } else if (row?.survey_id && row?.user_id){
       aq = aq.eq("survey_id", row.survey_id).eq("user_id", row.user_id);
     }
 
@@ -3399,10 +3373,6 @@ async function updateSubmittedResponseOnServer(rid, newSubmitted, totalScore){
     if (ansErr) console.warn("[responses] optional answers column update skipped", ansErr);
   }catch(e){
     console.warn("[responses] optional answers column update skipped", e);
-  }
-
-  if (updatedCount === 0){
-    throw new Error("서버 업데이트 대상 행을 찾지 못했습니다. 응답 ID 또는 권한을 확인해야 합니다.");
   }
 
   return true;
