@@ -635,7 +635,7 @@ function buildExcelXmlWorkbook({ sheets }) {
         <Interior ss:Color="#D9E1F2" ss:Pattern="Solid"/>
       </Style>
       <Style ss:ID="sText">
-        <Alignment ss:Vertical="Top" ss:WrapText="1"/>
+        <Alignment ss:Vertical="Top" ss:WrapText="0"/>
       </Style>
     </Styles>\n`;
 
@@ -4622,6 +4622,988 @@ document.getElementById("btnAnswersBack")?.addEventListener("click", () => {
     }
   };
 }
+
+
+// ================== Submitted Answers Overall Result ==================
+function fmtStatNumber(v, digits = 1){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "-";
+  return (Math.round(n * Math.pow(10, digits)) / Math.pow(10, digits)).toFixed(digits);
+}
+
+function parseScoreNumber(v){
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (v === null || v === undefined) return null;
+  const s = String(v).replace("점", "").trim();
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function scoreOfPoint(v){
+  if (v && typeof v === "object") return Number(v.score);
+  return Number(v);
+}
+
+function calcStats(values){
+  const raw = (values || [])
+    .map((v, i) => {
+      if (v && typeof v === "object") {
+        const score = Number(v.score);
+        return {
+          ...v,
+          score,
+          company: v.company || v.label || `응답 ${i+1}`,
+          label: v.label || v.company || `응답 ${i+1}`
+        };
+      }
+      return { score:Number(v), company:`응답 ${i+1}`, label:`응답 ${i+1}` };
+    })
+    .filter(p => Number.isFinite(p.score));
+
+  const arr = raw.map(p => p.score).sort((a,b)=>a-b);
+  const n = arr.length;
+  const bins = [
+    { label:"0~20", min:0, max:20, count:0, items:[] },
+    { label:"20~40", min:20, max:40, count:0, items:[] },
+    { label:"40~60", min:40, max:60, count:0, items:[] },
+    { label:"60~80", min:60, max:80, count:0, items:[] },
+    { label:"80~100", min:80, max:100.000001, count:0, items:[] }
+  ];
+
+  raw.forEach(p => {
+    const b = bins.find(x => p.score >= x.min && p.score < x.max) || bins[bins.length-1];
+    b.items.push(p);
+    b.count++;
+  });
+
+  bins.forEach(b => {
+    b.items.sort((a,b)=>b.score-a.score);
+  });
+
+  if (!n) return { count:0, avg:null, median:null, max:null, min:null, variance:null, stddev:null, distribution:bins };
+  const sum = arr.reduce((a,b)=>a+b,0);
+  const avg = sum / n;
+  const mid = Math.floor(n/2);
+  const median = n % 2 ? arr[mid] : (arr[mid-1] + arr[mid]) / 2;
+  const variance = arr.reduce((a,b)=>a+Math.pow(b-avg,2),0) / n;
+  return { count:n, avg, median, max:arr[n-1], min:arr[0], variance, stddev:Math.sqrt(variance), distribution:bins };
+}
+
+function extremaTooltipItems(points, type){
+  const list = (points || [])
+    .map((p, i) => ({
+      company: p?.company || p?.label || `응답 ${i+1}`,
+      score: Number(p?.score)
+    }))
+    .filter(p => Number.isFinite(p.score));
+  if (!list.length) return [];
+  const val = type === "min"
+    ? Math.min(...list.map(p => p.score))
+    : Math.max(...list.map(p => p.score));
+  return list
+    .filter(p => Math.abs(p.score - val) < 0.000001)
+    .sort((a,b)=>String(a.company).localeCompare(String(b.company), "ko"))
+    .map(p => ({ company:p.company, score:fmtStatNumber(p.score) }));
+}
+
+function makeSubmittedScoreCurveSvg(points, width = 760, height = 320){
+  const list = (points || []).map((p, i) => ({
+    label: p?.label || p?.company || `응답 ${i+1}`,
+    company: p?.company || p?.label || `응답 ${i+1}`,
+    score: Number(p?.score),
+    name: p?.name || "",
+    email: p?.email || ""
+  })).filter(p => Number.isFinite(p.score));
+
+  const pad = { left:48, right:24, top:20, bottom:48 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const binSize = 10;
+  const bins = [];
+  for (let min = 0; min < 100; min += binSize) {
+    bins.push({
+      label: `${min}~${min + binSize}`,
+      min,
+      max: min + binSize,
+      center: min + binSize / 2,
+      items: []
+    });
+  }
+
+  list.forEach(p => {
+    const score = Math.max(0, Math.min(100, p.score));
+    const idx = Math.min(bins.length - 1, Math.max(0, Math.floor(score / binSize)));
+    bins[idx].items.push(p);
+  });
+
+  bins.forEach(b => { b.count = b.items.length; });
+  const maxCount = Math.max(1, ...bins.map(b => b.count));
+
+  const xOfScore = (score) => pad.left + (Math.max(0, Math.min(100, score)) / 100) * innerW;
+  const yOfCount = (count) => pad.top + innerH - (Number(count || 0) / maxCount) * innerH;
+
+  const xTicks = [0,10,20,30,40,50,60,70,80,90,100].map(v => {
+    const x = xOfScore(v);
+    return `<line x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + innerH}" stroke="currentColor" opacity="0.07"></line>
+            <text x="${x}" y="${height - 22}" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.72">${v}</text>`;
+  }).join("");
+
+  const yTicks = Array.from({length: maxCount + 1}, (_, i) => i).filter(i => {
+    if (maxCount <= 6) return true;
+    const step = Math.ceil(maxCount / 5);
+    return i % step === 0 || i === maxCount;
+  }).map(v => {
+    const y = yOfCount(v);
+    return `<line x1="${pad.left}" y1="${y}" x2="${width-pad.right}" y2="${y}" stroke="currentColor" opacity="0.10"></line>
+            <text x="${pad.left-8}" y="${y+4}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.72">${v}</text>`;
+  }).join("");
+
+  const curvePts = bins.map(b => ({ x: xOfScore(b.center), y: yOfCount(b.count), ...b }));
+  const pathD = curvePts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const areaD = curvePts.length
+    ? `M ${curvePts[0].x} ${pad.top + innerH} ` + curvePts.map(p => `L ${p.x} ${p.y}`).join(" ") + ` L ${curvePts[curvePts.length-1].x} ${pad.top + innerH} Z`
+    : "";
+
+  // 정규분포 보조선: 현재 데이터의 평균/표준편차를 기준으로 점선 형태로 표시
+  const scoreValues = list.map(p => p.score).filter(v => Number.isFinite(v));
+  const mean = scoreValues.length
+    ? scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length
+    : 0;
+  const variance = scoreValues.length
+    ? scoreValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / scoreValues.length
+    : 0;
+  const std = Math.max(Math.sqrt(variance), 1);
+
+  const normalPoints = [];
+  for (let s = 0; s <= 100; s += 2) {
+    const density =
+      (1 / (std * Math.sqrt(2 * Math.PI))) *
+      Math.exp(-0.5 * Math.pow((s - mean) / std, 2));
+
+    normalPoints.push({
+      score: s,
+      density
+    });
+  }
+
+  const normalMax = Math.max(0, ...normalPoints.map(p => p.density));
+  const normalPathD = normalMax > 0
+    ? normalPoints.map((p, i) => {
+        const x = xOfScore(p.score);
+        const scaledCount = (p.density / normalMax) * maxCount;
+        const y = yOfCount(scaledCount);
+        return `${i === 0 ? "M" : "L"} ${x} ${y}`;
+      }).join(" ")
+    : "";
+
+  const hoverRects = curvePts.map(p => {
+    const tooltipItems = p.items
+      .slice()
+      .sort((a,b)=>b.score-a.score)
+      .map(it => ({
+        company: it.company || it.label || "응답",
+        score: fmtStatNumber(it.score)
+      }));
+    const itemsJson = escapeAttr(JSON.stringify(tooltipItems));
+    return `<g class="submitted-curve-bin" tabindex="0" data-bin-label="${escapeAttr(p.label)}" data-bin-count="${p.items.length}" data-items="${itemsJson}">
+      <rect x="${p.x - innerW / bins.length / 2}" y="${pad.top}" width="${innerW / bins.length}" height="${innerH}" fill="transparent" style="pointer-events:all;"></rect>
+      <circle cx="${p.x}" cy="${p.y}" r="4.5" fill="currentColor" opacity="${p.count ? "0.88" : "0.28"}"></circle>
+      ${p.count ? `<text x="${p.x}" y="${p.y-9}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.82" style="pointer-events:none;">${p.count}</text>` : ``}
+    </g>`;
+  }).join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block; color:inherit; overflow:visible;">
+      ${xTicks}
+      ${yTicks}
+      <line x1="${pad.left}" y1="${pad.top + innerH}" x2="${width - pad.right}" y2="${pad.top + innerH}" stroke="currentColor" opacity="0.28"></line>
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + innerH}" stroke="currentColor" opacity="0.20"></line>
+      ${areaD ? `<path class="real-distribution-area" d="${areaD}" fill="currentColor" opacity="0.08"></path>` : ``}
+      ${normalPathD ? `<path class="normal-distribution-line" d="${normalPathD}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="7 6" opacity="0.72"></path>` : ``}
+      ${pathD ? `<path class="real-distribution-line" d="${pathD}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"></path>` : ``}
+      ${hoverRects}
+      <text x="${pad.left + innerW/2}" y="${height - 6}" text-anchor="middle" font-size="12" fill="currentColor" opacity="0.72">점수 구간</text>
+      <text x="14" y="${pad.top + innerH/2}" text-anchor="middle" font-size="12" fill="currentColor" opacity="0.72" transform="rotate(-90 14 ${pad.top + innerH/2})">응답수</text>
+    </svg>
+  `;
+}
+
+// 하위 호환: 기존 호출부가 남아 있어도 곡선 그래프로 렌더링
+function makeSubmittedScatterSvg(points, width = 760, height = 320){
+  return makeSubmittedScoreCurveSvg(points, width, height);
+}
+
+function ensureSubmittedCurveTooltipStyle(){
+  if (document.getElementById("submittedCurveTooltipStyle")) return;
+  const style = document.createElement("style");
+  style.id = "submittedCurveTooltipStyle";
+  style.textContent = `
+    .submitted-curve-tooltip{
+      position:fixed;
+      z-index:999999;
+      min-width:240px;
+      max-width:380px;
+      background:rgba(15,23,42,.96);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:14px;
+      padding:12px 14px;
+      box-shadow:0 18px 45px rgba(15,23,42,.28);
+      pointer-events:none;
+      opacity:0;
+      transform:translateY(5px) scale(.98);
+      transition:opacity .12s ease, transform .12s ease;
+      backdrop-filter:blur(10px);
+      -webkit-backdrop-filter:blur(10px);
+      font-family:Arial, "Noto Sans KR", sans-serif;
+    }
+    .submitted-curve-tooltip.show{
+      opacity:1;
+      transform:translateY(0) scale(1);
+    }
+    .submitted-curve-tooltip-title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+      padding-bottom:8px;
+      border-bottom:1px solid rgba(255,255,255,.16);
+      font-size:13px;
+      font-weight:900;
+    }
+    .submitted-curve-tooltip-count{
+      color:#fcd34d;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .submitted-curve-tooltip-list{
+      display:flex;
+      flex-direction:column;
+      gap:7px;
+      max-height:280px;
+      overflow:auto;
+      padding-right:2px;
+    }
+    .submitted-curve-tooltip-row{
+      display:grid;
+      grid-template-columns:1fr auto;
+      gap:14px;
+      align-items:center;
+      font-size:12px;
+      line-height:1.35;
+    }
+    .submitted-curve-tooltip-company{
+      color:#fff;
+      font-weight:700;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .submitted-curve-tooltip-score{
+      color:#fcd34d;
+      font-weight:900;
+      white-space:nowrap;
+      font-variant-numeric:tabular-nums;
+    }
+    .submitted-curve-tooltip-empty{
+      color:rgba(255,255,255,.68);
+      font-size:12px;
+      line-height:1.45;
+    }
+    #submittedScatterChart{ overflow:visible !important; }
+    #submittedScatterChart svg{ overflow:visible !important; }
+    #submittedScatterChart .submitted-curve-bin{ cursor:pointer; }
+    #submittedScatterChart .submitted-curve-bin circle{ transition:r .14s ease, fill .14s ease, opacity .14s ease; }
+    #submittedScatterChart .submitted-curve-bin:hover circle{ r:7; fill:#D65DB1; opacity:1; }
+    .submitted-pie-slice, .submitted-pie-legend-item, .submitted-extreme-cell{ cursor:pointer; }
+    .submitted-pie-slice:hover{ opacity:0.92 !important; filter:drop-shadow(0 4px 10px rgba(15,23,42,.22)); }
+    .submitted-pie-legend-item:hover{ color:#D65DB1; }
+    .submitted-extreme-cell{
+      cursor:pointer;
+      font-weight:800;
+      text-decoration:underline dotted rgba(107,114,128,.55);
+      text-underline-offset:3px;
+    }
+    .stat-card.submitted-extreme-cell{
+      text-decoration:none;
+      transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    .stat-card.submitted-extreme-cell:hover{
+      transform:translateY(-2px);
+      border-color:rgba(214,93,177,.35);
+      box-shadow:0 10px 28px rgba(214,93,177,.10);
+    }
+    .submitted-extreme-cell:hover{ color:#D65DB1; }
+    .stat-card.submitted-extreme-cell:hover .hint{ color:#D65DB1; }
+  `;
+  document.head.appendChild(style);
+}
+
+function getSubmittedTooltipEl(){
+  ensureSubmittedCurveTooltipStyle();
+  let tooltip = document.getElementById("submittedCurveTooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "submittedCurveTooltip";
+    tooltip.className = "submitted-curve-tooltip";
+    document.body.appendChild(tooltip);
+  }
+  return tooltip;
+}
+
+function moveSubmittedTooltip(e, tooltip){
+  const margin = 14;
+  const tw = tooltip.offsetWidth || 280;
+  const th = tooltip.offsetHeight || 120;
+  let left = e.clientX + margin;
+  let top = e.clientY + margin;
+
+  if (left + tw > window.innerWidth - 10) left = e.clientX - tw - margin;
+  if (top + th > window.innerHeight - 10) top = e.clientY - th - margin;
+
+  tooltip.style.left = `${Math.max(10, left)}px`;
+  tooltip.style.top = `${Math.max(10, top)}px`;
+}
+
+function renderSubmittedTooltipHtml(title, count, items){
+  const safeItems = Array.isArray(items) ? items : [];
+  const listHtml = safeItems.length
+    ? safeItems.map(it => `
+        <div class="submitted-curve-tooltip-row">
+          <div class="submitted-curve-tooltip-company">${escapeHtml(it.company || "-")}</div>
+          <div class="submitted-curve-tooltip-score">${escapeHtml(it.score)}점</div>
+        </div>
+      `).join("")
+    : `<div class="submitted-curve-tooltip-empty">표시할 회사가 없습니다.</div>`;
+
+  return `
+    <div class="submitted-curve-tooltip-title">
+      <span>${escapeHtml(title || "점수 정보")}</span>
+      <span class="submitted-curve-tooltip-count">${Number(count || safeItems.length || 0)}개</span>
+    </div>
+    <div class="submitted-curve-tooltip-list">${listHtml}</div>
+  `;
+}
+
+function bindSubmittedTooltipTargets(selector, titleBuilder){
+  const tooltip = getSubmittedTooltipEl();
+  document.querySelectorAll(selector).forEach((el) => {
+    el.onmouseenter = (e) => {
+      let items = [];
+      try { items = JSON.parse(el.dataset.items || "[]"); } catch (_) { items = []; }
+      const title = typeof titleBuilder === "function" ? titleBuilder(el) : (el.dataset.tooltipTitle || "점수 정보");
+      const count = Number(el.dataset.binCount || el.dataset.count || items.length || 0);
+      tooltip.innerHTML = renderSubmittedTooltipHtml(title, count, items);
+      moveSubmittedTooltip(e, tooltip);
+      tooltip.classList.add("show");
+    };
+    el.onmousemove = (e) => moveSubmittedTooltip(e, tooltip);
+    el.onmouseleave = () => tooltip.classList.remove("show");
+  });
+}
+
+function installSubmittedCurveTooltip(){
+  bindSubmittedTooltipTargets("#submittedScatterChart .submitted-curve-bin", (bin) => `${bin.dataset.binLabel || "점수 구간"}점 구간`);
+}
+
+function installSubmittedPieTooltip(){
+  bindSubmittedTooltipTargets("#submittedPieChart .submitted-pie-tooltip-target", (el) => `${el.dataset.binLabel || "점수 구간"}점 구간`);
+}
+
+function installSubmittedExtremeTooltip(){
+  bindSubmittedTooltipTargets("#submittedOverallResultPanel .submitted-extreme-cell", (el) => el.dataset.tooltipTitle || "점수 정보");
+}
+
+function polarToCartesian(cx, cy, r, angleDeg){
+  const a = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+
+function describeArc(cx, cy, r, startAngle, endAngle){
+  const start = polarToCartesian(cx, cy, r, endAngle);
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+}
+
+function makeSubmittedPieSvg(stats, width = 300, height = 250){
+  const dist = (stats?.distribution || []).filter(d => Number(d.count || 0) > 0);
+  const total = dist.reduce((a,d)=>a+Number(d.count||0),0);
+  if (!total) return `<div class="hint">원형 그래프 데이터가 없습니다.</div>`;
+
+  // 점수 구간별 컬러: 낮은 점수는 p3/p4, 높은 점수는 p1/p2 계열
+  const colorByLabel = {
+    "0~20": "rgba(255,111,145,.55)",
+    "20~40": "rgba(255,150,113,.52)",
+    "40~60": "rgba(255,199,95,.50)",
+    "60~80": "rgba(214,93,177,.48)",
+    "80~100": "rgba(132,94,194,.46)"
+  };
+  const fallbackColors = [
+    "rgba(255,111,145,.55)",
+    "rgba(255,150,113,.52)",
+    "rgba(255,199,95,.50)",
+    "rgba(214,93,177,.48)",
+    "rgba(132,94,194,.46)"
+  ];
+
+  let angle = 0;
+  const cx = 96, cy = 104, r = 78;
+
+  const paths = dist.map((d, i) => {
+    const share = Number(d.count || 0) / total;
+    const next = angle + share * 360;
+    const path = describeArc(cx, cy, r, angle, next);
+    const mid = angle + (next-angle)/2;
+    const labelPt = polarToCartesian(cx, cy, r*0.62, mid);
+    const color = colorByLabel[d.label] || fallbackColors[i % fallbackColors.length];
+
+    const itemsJson = escapeAttr(JSON.stringify((d.items || []).map(it => ({
+      company: it.company || it.label || "응답",
+      score: fmtStatNumber(it.score)
+    }))));
+
+    angle = next;
+
+    return `
+      <path
+        class="submitted-pie-slice submitted-pie-tooltip-target"
+        d="${path}"
+        fill="${color}"
+        data-bin-label="${escapeAttr(d.label)}"
+        data-count="${d.count}"
+        data-items="${itemsJson}"
+      ></path>
+      <text
+        class="submitted-pie-count submitted-pie-tooltip-target"
+        x="${labelPt.x}"
+        y="${labelPt.y+4}"
+        text-anchor="middle"
+        font-size="10"
+        fill="#111827"
+        data-bin-label="${escapeAttr(d.label)}"
+        data-count="${d.count}"
+        data-items="${itemsJson}"
+      >${d.count}</text>
+    `;
+  }).join("");
+
+  const legend = dist.map((d, i) => {
+    const pct = Math.round(Number(d.count || 0) / total * 100);
+    const color = colorByLabel[d.label] || fallbackColors[i % fallbackColors.length];
+
+    const itemsJson = escapeAttr(JSON.stringify((d.items || []).map(it => ({
+      company: it.company || it.label || "응답",
+      score: fmtStatNumber(it.score)
+    }))));
+
+    return `
+      <div
+        class="submitted-pie-legend-item submitted-pie-tooltip-target"
+        data-bin-label="${escapeAttr(d.label)}"
+        data-count="${d.count}"
+        data-items="${itemsJson}"
+      >
+        <span class="submitted-pie-legend-left">
+          <i class="submitted-pie-color-dot" style="background:${color};"></i>
+          <span>${escapeHtml(d.label)}점</span>
+        </span>
+        <b>${d.count}개 · ${pct}%</b>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="submitted-pie-wrap">
+      <svg viewBox="0 0 205 205" class="submitted-pie-svg">
+        ${paths}
+        <circle cx="${cx}" cy="${cy}" r="34" fill="#fff" opacity="0.90"></circle>
+        <text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="13" fill="#111827" font-weight="800">${total}개</text>
+        <text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="10" fill="#6b7280">응답</text>
+      </svg>
+      <div class="submitted-pie-legend">${legend}</div>
+    </div>
+  `;
+}
+
+function getSubmittedOverallPanel(){
+  let panel = document.getElementById("submittedOverallResultPanel");
+  if (panel) return panel;
+
+  panel = document.createElement("div");
+  panel.id = "submittedOverallResultPanel";
+  panel.className = "card";
+  panel.style.display = "none";
+  panel.style.margin = "12px 0";
+
+  const tbody = document.getElementById("submittedTbody");
+  const table = tbody?.closest?.("table");
+  if (table?.parentNode) table.parentNode.insertBefore(panel, table);
+  else document.querySelector(".view-answers")?.appendChild(panel);
+  return panel;
+}
+
+function ensureSubmittedOverallButton(){
+  let btn = document.getElementById("btnSubmittedOverallResult");
+  if (btn) return btn;
+
+  btn = document.createElement("button");
+  btn.id = "btnSubmittedOverallResult";
+  btn.className = "btn";
+  btn.type = "button";
+  btn.textContent = "종합 결과";
+  btn.title = "제출된 답변의 전체 및 구분1/구분2 상세 점수 통계를 확인합니다.";
+
+  const anchor = document.getElementById("btnBulkEvidenceZip") || document.getElementById("btnBulkRecall") || document.getElementById("btnBulkSend");
+  if (anchor?.parentNode) anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+  else {
+    const titleEl = document.getElementById("submittedSurveyTitle");
+    titleEl?.parentNode?.appendChild(btn);
+  }
+  return btn;
+}
+
+function buildSubmittedOverallData(surveyJson, rows){
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const result = {
+    totalPoints: [],
+    g1: new Map(),
+    g2: new Map()
+  };
+
+  for (const row of safeRows){
+    const submitted = row?.__submitted || row?.submitted_json || row?.answers || {};
+    const company = row?.__company || getMeta(submitted, ["company", "company_name", "companyName", "회사명"]) || "-";
+    const name = row?.__name || getMeta(submitted, ["name", "userName", "이름"]) || "";
+    const email = row?.__email || row?.respondent_email || "";
+    let report = null;
+    try { report = computeSubmittedReport(surveyJson, submitted); } catch(e) { report = null; }
+
+    const total = parseScoreNumber(report?.totalScore ?? row?.__score);
+    if (total !== null) result.totalPoints.push({ label: company, company, name, email, score: total });
+
+    for (const g1 of (report?.g1Rows || [])){
+      const g1Score = parseScoreNumber(g1.score100Text);
+      if (g1Score !== null && !g1.excluded) {
+        if (!result.g1.has(g1.name)) result.g1.set(g1.name, []);
+        result.g1.get(g1.name).push({ label: company, company, name, email, score: g1Score });
+      }
+      for (const g2 of (g1.g2 || [])){
+        const g2Score = parseScoreNumber(g2.score100Text);
+        if (g2Score !== null && !g2.excluded) {
+          const key = `${g1.name} > ${g2.name}`;
+          if (!result.g2.has(key)) result.g2.set(key, []);
+          result.g2.get(key).push({ label: company, company, name, email, score: g2Score });
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function updateSubmittedOverallCharts(kind, key){
+  const data = window.__submittedOverallData;
+  if (!data) return;
+  let title = "전체 점수 분포";
+  let points = data.totalPoints || [];
+  if (kind === "g1" && data.g1?.has(key)) {
+    title = `구분1 점수 분포: ${key}`;
+    points = data.g1.get(key) || [];
+  } else if (kind === "g2" && data.g2?.has(key)) {
+    title = `구분2 점수 분포: ${key}`;
+    points = data.g2.get(key) || [];
+  }
+  const stats = calcStats(points);
+  const titleEl = document.getElementById("submittedChartTitle");
+  const scatterEl = document.getElementById("submittedScatterChart");
+  const pieEl = document.getElementById("submittedPieChart");
+  const summaryEl = document.getElementById("submittedChartSummary");
+  if (titleEl) titleEl.textContent = title;
+  if (scatterEl) {
+    scatterEl.innerHTML = makeSubmittedScoreCurveSvg(points);
+    installSubmittedCurveTooltip();
+  }
+  if (pieEl) {
+    pieEl.innerHTML = makeSubmittedPieSvg(stats);
+    installSubmittedPieTooltip();
+  }
+  if (summaryEl) summaryEl.innerHTML = `응답수 <b>${stats.count}</b> · 평균 <b>${fmtStatNumber(stats.avg)}</b> · 중간값 <b>${fmtStatNumber(stats.median)}</b> · 최고 <b>${fmtStatNumber(stats.max)}</b> · 최저 <b>${fmtStatNumber(stats.min)}</b>`;
+
+  document.querySelectorAll("[data-score-chart]").forEach(el => {
+    el.classList.remove("active");
+    if ((el.dataset.kind || "") === (kind || "total") && (el.dataset.key || "") === (key || "")) {
+      el.classList.add("active");
+    }
+  });
+}
+
+function statsTableHtml(title, map, kind){
+  const entries = Array.from(map || []).map(([name, points]) => [name, points, calcStats(points)]);
+  if (!entries.length) return `<div class="hint" style="margin-top:8px;">${escapeHtml(title)} 데이터가 없습니다.</div>`;
+
+  const wrapId = kind === "g1" ? "submittedG1StatsWrap" : "submittedG2StatsWrap";
+
+  return `
+    <div class="submitted-collapse-header" data-collapse-target="${wrapId}">
+      <div>
+        <h3>${escapeHtml(title)}</h3>
+        <div class="hint" style="margin-top:4px;">항목명을 클릭하면 상단 곡선 분포 그래프와 원형 그래프가 해당 항목 기준으로 변경됩니다.</div>
+      </div>
+      <button type="button" class="submitted-collapse-btn">접기</button>
+    </div>
+
+    <div id="${wrapId}" class="submitted-collapse-body">
+      <div style="overflow:auto; margin-top:8px;">
+        <table class="mini-table" style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">항목</th>
+              <th style="padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">응답수</th>
+              <th style="padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">평균</th>
+              <th style="padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">중간값</th>
+              <th style="padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">최고값</th>
+              <th style="padding:8px; border-bottom:1px solid rgba(255,255,255,.14);">최저값</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map(([name, points, st]) => `
+              <tr>
+                <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:left; word-break:break-all;">
+                  <button class="link-btn submitted-score-link" type="button" data-score-chart data-kind="${escapeAttr(kind)}" data-key="${escapeAttr(name)}">${escapeHtml(name)}</button>
+                </td>
+                <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center;">${st.count}</td>
+                <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center;">${fmtStatNumber(st.avg)}</td>
+                <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center;">${fmtStatNumber(st.median)}</td>
+                <td class="submitted-extreme-cell" data-tooltip-title="최고값 ${fmtStatNumber(st.max)}점" data-count="${extremaTooltipItems(points, "max").length}" data-items="${escapeAttr(JSON.stringify(extremaTooltipItems(points, "max")))}" style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center; font-weight:400; text-decoration:none;">${fmtStatNumber(st.max)}</td>
+                <td class="submitted-extreme-cell" data-tooltip-title="최저값 ${fmtStatNumber(st.min)}점" data-count="${extremaTooltipItems(points, "min").length}" data-items="${escapeAttr(JSON.stringify(extremaTooltipItems(points, "min")))}" style="padding:8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center; font-weight:400; text-decoration:none;">${fmtStatNumber(st.min)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+
+function submittedExcelPointLabel(p, idx = 0){
+  return p?.company || p?.label || `응답 ${idx + 1}`;
+}
+
+function submittedExcelScore(p){
+  const n = Number(p?.score);
+  return Number.isFinite(n) ? n : null;
+}
+
+function submittedExcelBinLabel(score){
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "";
+  if (n < 20) return "0~20점";
+  if (n < 40) return "20~40점";
+  if (n < 60) return "40~60점";
+  if (n < 80) return "60~80점";
+  return "80~100점";
+}
+
+function submittedExcelExtremeNames(points, type){
+  const list = (points || [])
+    .map((p, i) => ({
+      company: submittedExcelPointLabel(p, i),
+      score: submittedExcelScore(p),
+      email: p?.email || ""
+    }))
+    .filter(p => Number.isFinite(p.score));
+
+  if (!list.length) return "";
+  const target = type === "min"
+    ? Math.min(...list.map(p => p.score))
+    : Math.max(...list.map(p => p.score));
+
+  return list
+    .filter(p => Math.abs(p.score - target) < 1e-9)
+    .map(p => p.company)
+    .join(" / ");
+}
+
+function submittedStatsToRow(label, points){
+  const stats = calcStats(points || []);
+  const maxNames = submittedExcelExtremeNames(points, "max");
+  const minNames = submittedExcelExtremeNames(points, "min");
+  const note = [
+    maxNames ? `최고: ${maxNames}` : "",
+    minNames ? `최저: ${minNames}` : ""
+  ].filter(Boolean).join(" / ");
+
+  return [
+    label,
+    stats.count,
+    fmtStatNumber(stats.avg),
+    fmtStatNumber(stats.median),
+    fmtStatNumber(stats.max),
+    fmtStatNumber(stats.min),
+    fmtStatNumber(stats.variance, 2),
+    fmtStatNumber(stats.stddev, 2),
+    note
+  ];
+}
+
+function submittedPointsRows(points){
+  const list = (points || [])
+    .filter(p => Number.isFinite(Number(p?.score)))
+    .sort((a,b) => Number(b.score) - Number(a.score));
+
+  return list.map((p, idx) => [
+    idx + 1,
+    p.company || p.label || "",
+    fmtStatNumber(p.score),
+    submittedExcelBinLabel(p.score),
+    p.email || ""
+  ]);
+}
+
+function submittedDistributionRows(stats){
+  const total = Number(stats?.count || 0);
+  const rows = [];
+
+  for (const d of (stats?.distribution || [])){
+    const pct = total ? Math.round((Number(d.count || 0) / total) * 1000) / 10 : 0;
+    const items = (d.items || []).slice().sort((a,b)=>Number(b.score)-Number(a.score));
+
+    if (!items.length) {
+      rows.push([d.label + "점", d.count || 0, pct + "%", "", "", ""]);
+      continue;
+    }
+
+    items.forEach((it, idx) => {
+      rows.push([
+        idx === 0 ? d.label + "점" : "",
+        idx === 0 ? (d.count || 0) : "",
+        idx === 0 ? pct + "%" : "",
+        it.company || it.label || "응답",
+        fmtStatNumber(it.score),
+        it.email || ""
+      ]);
+    });
+  }
+
+  return rows;
+}
+
+function mapStatsRows(map){
+  return Array.from(map || []).map(([name, points]) => submittedStatsToRow(name, points));
+}
+
+function submittedPivotRows(map){
+  const entries = Array.from(map || []);
+  const categories = entries.map(([name]) => name);
+  const companyMap = new Map();
+
+  for (const [category, points] of entries){
+    for (const p of (points || [])){
+      const company = p.company || p.label || "";
+      const email = p.email || "";
+      const key = `${company}||${email}`;
+      if (!companyMap.has(key)) {
+        companyMap.set(key, { company, email, scores: new Map() });
+      }
+      companyMap.get(key).scores.set(category, fmtStatNumber(p.score));
+    }
+  }
+
+  const rows = Array.from(companyMap.values())
+    .sort((a,b)=>String(a.company).localeCompare(String(b.company), "ko"))
+    .map((item, idx) => [
+      idx + 1,
+      item.company,
+      item.email,
+      ...categories.map(cat => item.scores.get(cat) || "")
+    ]);
+
+  return {
+    header: ["순번", "회사명", "이메일", ...categories],
+    rows
+  };
+}
+
+function exportSubmittedOverallExcel(){
+  const data = window.__submittedOverallData;
+  if (!data) {
+    alert("먼저 종합 결과를 표시해 주세요.");
+    return;
+  }
+
+  const totalStats = calcStats(data.totalPoints || []);
+  const surveyTitle = currentAnswersSurvey?.title || "survey";
+  const surveyCode = currentAnswersSurvey?.code || "";
+  const exportedAt = new Date().toLocaleString("ko-KR");
+
+  const statsHeader = ["구분", "응답수", "평균", "중간값", "최고값", "최저값", "분산", "표준편차", "비고"];
+
+  const summaryRows = [
+    ["제출된 답변 종합 결과"],
+    [],
+    ["설문명", surveyTitle],
+    ["설문코드", surveyCode],
+    ["내보내기일시", exportedAt],
+    [],
+    statsHeader,
+    submittedStatsToRow("전체 점수", data.totalPoints || [])
+  ];
+
+  const totalScoreRows = [
+    ["순위", "회사명", "종합점수", "점수구간", "이메일"],
+    ...submittedPointsRows(data.totalPoints || [])
+  ];
+
+  const distributionRows = [
+    ["점수 구간", "구간 응답수", "비중", "회사명", "점수", "이메일"],
+    ...submittedDistributionRows(totalStats)
+  ];
+
+  const g1StatsRows = [
+    statsHeader,
+    ...mapStatsRows(data.g1)
+  ];
+
+  const g2StatsRows = [
+    statsHeader,
+    ...mapStatsRows(data.g2)
+  ];
+
+  const g1Pivot = submittedPivotRows(data.g1);
+  const g2Pivot = submittedPivotRows(data.g2);
+
+  const g1ByCompanyRows = [
+    g1Pivot.header,
+    ...g1Pivot.rows
+  ];
+
+  const g2ByCompanyRows = [
+    g2Pivot.header,
+    ...g2Pivot.rows
+  ];
+
+  const xml = buildExcelXmlWorkbook({
+    sheets: [
+      { name: "01_Summary", rows: summaryRows },
+      { name: "02_Total_Scores", rows: totalScoreRows },
+      { name: "03_Distribution", rows: distributionRows },
+      { name: "04_G1_Stats", rows: g1StatsRows },
+      { name: "05_G2_Stats", rows: g2StatsRows },
+      { name: "06_G1_By_Company", rows: g1ByCompanyRows },
+      { name: "07_G2_By_Company", rows: g2ByCompanyRows }
+    ]
+  });
+
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const a = document.createElement("a");
+  const safeTitle = sanitizeFilename(surveyTitle || "survey");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${safeTitle}_submitted_overall_results.xlsx`.replace(/\.xlsx$/, ".xls");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+
+function renderSubmittedOverallResult(){
+  const ctx = window.__answersCtx || {};
+  const panel = getSubmittedOverallPanel();
+  const surveyJson = ctx.surveyJson;
+  const rows = ctx.rows || [];
+  if (!panel) return;
+  if (!surveyJson || !rows.length) {
+    panel.style.display = "";
+    panel.innerHTML = `<b>제출된 답변 종합 결과</b><div class="hint" style="margin-top:8px;">분석할 제출 데이터가 없습니다.</div>`;
+    return;
+  }
+
+  const data = buildSubmittedOverallData(surveyJson, rows);
+  window.__submittedOverallData = data;
+  const totalStats = calcStats(data.totalPoints);
+  panel.style.display = "";
+  panel.innerHTML = `
+    <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
+      <div>
+        <b>제출된 답변 종합 결과</b>
+        <div class="hint" style="margin-top:4px;">전체 점수 및 구분1/구분2 상세 점수 기준 통계입니다.</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn small" id="btnSubmittedSortDesc" type="button">점수 내림차순</button>
+        <button class="btn small" id="btnSubmittedSortAsc" type="button">점수 오름차순</button>
+        <button class="btn small primary" id="btnSubmittedExcelExport" type="button">엑셀로 내보내기</button>
+        <button class="btn small" id="btnSubmittedOverallClose" type="button">닫기</button>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(6, minmax(92px, 1fr)); gap:8px; margin-top:12px;">
+      <div class="stat-card"><div class="hint">응답수</div><b>${totalStats.count}</b></div>
+      <div class="stat-card"><div class="hint">평균</div><b>${fmtStatNumber(totalStats.avg)}</b></div>
+      <div class="stat-card"><div class="hint">중간값</div><b>${fmtStatNumber(totalStats.median)}</b></div>
+      <div class="stat-card submitted-extreme-cell" data-tooltip-title="전체 최고값 ${fmtStatNumber(totalStats.max)}점" data-count="${extremaTooltipItems(data.totalPoints, "max").length}" data-items="${escapeAttr(JSON.stringify(extremaTooltipItems(data.totalPoints, "max")))}"><div class="hint">최고값</div><b>${fmtStatNumber(totalStats.max)}</b></div>
+      <div class="stat-card submitted-extreme-cell" data-tooltip-title="전체 최저값 ${fmtStatNumber(totalStats.min)}점" data-count="${extremaTooltipItems(data.totalPoints, "min").length}" data-items="${escapeAttr(JSON.stringify(extremaTooltipItems(data.totalPoints, "min")))}"><div class="hint">최저값</div><b>${fmtStatNumber(totalStats.min)}</b></div>
+      <div class="stat-card"><div class="hint">분산</div><b>${fmtStatNumber(totalStats.variance, 2)}</b></div>
+    </div>
+
+    <div style="margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <div>
+        <div id="submittedChartTitle" style="font-weight:800;">전체 점수 분포</div>
+        <div id="submittedChartSummary" class="hint" style="margin-top:4px;"></div>
+      </div>
+      <button class="btn small" type="button" data-score-chart data-kind="total" data-key="">전체 점수 보기</button>
+    </div>
+    <div style="display:grid; grid-template-columns:minmax(360px, 2fr) minmax(260px, 1fr); gap:12px; margin-top:8px; align-items:stretch;">
+      <div id="submittedScatterChart" style="padding:10px; border:1px solid rgba(255,255,255,.12); border-radius:12px; overflow:auto;"></div>
+      <div style="padding:10px; border:1px solid rgba(255,255,255,.12); border-radius:12px; overflow:auto;">
+        <div style="font-weight:800; margin-bottom:6px;">점수 구간 비중</div>
+        <div id="submittedPieChart"></div>
+      </div>
+    </div>
+
+    ${statsTableHtml("구분1 상세 점수 통계", data.g1, "g1")}
+    ${statsTableHtml("구분2 상세 점수 통계", data.g2, "g2")}
+  `;
+
+  panel.querySelector("#btnSubmittedOverallClose")?.addEventListener("click", () => {
+    panel.style.display = "none";
+    window.__submittedOverallListMode = false;
+    window.__submittedListSort = { key: "submittedAt", dir: "asc" };
+    window.__submittedScoreSort = "";
+    loadSubmittedAnswersTable();
+  });
+  panel.querySelector("#btnSubmittedExcelExport")?.addEventListener("click", () => exportSubmittedOverallExcel());
+  panel.querySelector("#btnSubmittedSortDesc")?.addEventListener("click", () => {
+    window.__submittedScoreSort = "desc";
+    loadSubmittedAnswersTable();
+  });
+  panel.querySelector("#btnSubmittedSortAsc")?.addEventListener("click", () => {
+    window.__submittedScoreSort = "asc";
+    loadSubmittedAnswersTable();
+  });
+  panel.querySelectorAll("[data-score-chart]").forEach(btn => {
+    btn.addEventListener("click", () => updateSubmittedOverallCharts(btn.dataset.kind, btn.dataset.key || ""));
+  });
+  panel.querySelectorAll(".submitted-collapse-header").forEach(header => {
+    header.addEventListener("click", (e) => {
+      e.preventDefault();
+      const targetId = header.dataset.collapseTarget;
+      const wrap = panel.querySelector("#" + targetId);
+      if (!wrap) return;
+
+      const btn = header.querySelector(".submitted-collapse-btn");
+      const isHidden = wrap.style.display === "none";
+      wrap.style.display = isHidden ? "" : "none";
+
+      if (btn) btn.textContent = isHidden ? "접기" : "펼치기";
+    });
+  });
+
+  installSubmittedExtremeTooltip();
+  updateSubmittedOverallCharts("total", "");
+}
 async function openSubmittedAnswers(survey){
   currentAnswersSurvey = survey;
 
@@ -4651,8 +5633,268 @@ if (bulkEvidenceBtn){
   bulkEvidenceBtn.title = "제출된 응답의 증빙자료를 일괄 ZIP으로 다운로드합니다.";
   bulkEvidenceBtn.style.display = "";
 }
+
+  const overallBtn = ensureSubmittedOverallButton();
+  if (overallBtn) {
+    overallBtn.style.display = "";
+    overallBtn.onclick = async () => {
+      window.__submittedOverallListMode = true;
+
+      // 기본 진입 시 총점 내림차순 정렬
+      window.__submittedListSort = {
+        key: "total",
+        dir: "desc"
+      };
+
+      window.__submittedScoreSort = "desc";
+      renderSubmittedOverallResult();
+      await loadSubmittedAnswersTable();
+    };
+  }
+
+  const panel = getSubmittedOverallPanel();
+  if (panel) panel.style.display = "none";
+  window.__submittedOverallListMode = false;
+  window.__submittedListSort = { key: "submittedAt", dir: "asc" };
+  window.__submittedScoreSort = "";
+
   await loadSubmittedAnswersTable();
 }
+
+
+function getSubmittedAnswerG1Names(surveyJson){
+  return (surveyJson?.groups1 || []).map(g1 => String(g1?.name || "").trim()).filter(Boolean);
+}
+
+function getSubmittedAnswerG1ScoreMap(surveyJson, submitted){
+  const out = {};
+  try{
+    const report = computeSubmittedReport(surveyJson, submitted);
+    for (const g1 of (report?.g1Rows || [])){
+      const name = String(g1?.name || "").trim();
+      const score = parseScoreNumber(g1?.score100Text);
+      if (name && score !== null && !g1.excluded) out[name] = score;
+    }
+  }catch(e){
+    console.warn("[answers] g1 score map failed", e);
+  }
+  return out;
+}
+
+function setSubmittedAnswersHeader({ overallMode = false, g1Names = [] } = {}){
+  const tbody = document.getElementById("submittedTbody");
+  const table = tbody?.closest("table");
+  const tr = table?.querySelector("thead tr");
+  if (!tr) return;
+
+  let sortState = window.__submittedListSort || {};
+  if (overallMode && !sortState.key) {
+    sortState = { key: "total", dir: "desc" };
+    window.__submittedListSort = sortState;
+    window.__submittedScoreSort = "desc";
+  }
+  const arrow = (key) => {
+    if (sortState.key !== key) return "";
+    return sortState.dir === "asc" ? " ▲" : " ▼";
+  };
+  const th = (label, key, extraStyle = "") => {
+    const data = key ? ` data-submitted-sort="${escapeAttr(key)}"` : "";
+    const clickable = key ? " submitted-sortable-th" : "";
+    return `<th${data} class="${clickable}" style="${extraStyle}">${escapeHtml(label)}${key ? arrow(key) : ""}</th>`;
+  };
+
+  if (overallMode){
+    tr.innerHTML = [
+      th("총점 순위", "total", "text-align:center; width:100px;"),
+      th("회사명", "company", "text-align:left; min-width:160px; white-space:nowrap;"),
+      th("총점", "total", "text-align:right; width:110px; white-space:nowrap;"),
+      ...g1Names.map(name => th(name, `g1::${name}`, "text-align:right; min-width:120px; white-space:nowrap;"))
+    ].join("");
+  } else {
+    tr.innerHTML = [
+      th("NO", "no", "text-align:center; width:70px;"),
+      th("회사명", "company", "text-align:left; min-width:150px; white-space:nowrap;"),
+      th("이름", "name", "text-align:left; min-width:100px; white-space:nowrap;"),
+      th("아이디", "email", "text-align:left; min-width:170px; white-space:nowrap;"),
+      th("제출일시", "submittedAt", "text-align:center; min-width:170px; white-space:nowrap;"),
+      th("제출 점수", "total", "text-align:right; width:100px; white-space:nowrap;"),
+      th("편집", "", "text-align:center; width:80px;"),
+      th("답변 다운로드", "", "text-align:center; width:120px;"),
+      th("결과 다운로드", "", "text-align:center; width:130px;"),
+      th("증빙 다운로드", "", "text-align:center; width:120px;"),
+      th("결과 전송", "", "text-align:center; width:110px;")
+    ].join("");
+  }
+
+  tr.querySelectorAll("[data-submitted-sort]").forEach(el => {
+    el.addEventListener("click", () => {
+      const key = el.dataset.submittedSort;
+      const prev = window.__submittedListSort || {};
+      const nextDir = (prev.key === key && prev.dir === "asc") ? "desc" : "asc";
+      window.__submittedListSort = { key, dir: nextDir };
+      if (key === "total") window.__submittedScoreSort = nextDir;
+
+      if(!renderSubmittedAnswersRowsFromCache()){
+        loadSubmittedAnswersTable();
+      }
+    });
+  });
+}
+
+function compareSubmittedRowsByKey(a, b, key){
+  if (key === "no") return Number(a.__originalIndex || 0) - Number(b.__originalIndex || 0);
+  if (key === "company") return String(a.__company || "").localeCompare(String(b.__company || ""), "ko");
+  if (key === "name") return String(a.__name || "").localeCompare(String(b.__name || ""), "ko");
+  if (key === "email") return String(a.__email || "").localeCompare(String(b.__email || ""), "ko");
+  if (key === "submittedAt") return Number(a.__submittedAtMs || 0) - Number(b.__submittedAtMs || 0);
+  if (key === "total") return Number(a.__score || 0) - Number(b.__score || 0);
+  if (String(key || "").startsWith("g1::")){
+    const name = String(key).slice(4);
+    const av = Number(a.__g1Scores?.[name]);
+    const bv = Number(b.__g1Scores?.[name]);
+    const an = Number.isFinite(av) ? av : -Infinity;
+    const bn = Number.isFinite(bv) ? bv : -Infinity;
+    return an - bn;
+  }
+  return 0;
+}
+
+
+
+
+function buildSubmittedTotalRankMap(rows){
+  const sorted = [...(rows || [])].sort((a,b) => Number(b.__score || 0) - Number(a.__score || 0));
+  const rankMap = new Map();
+
+  let prevScore = null;
+  let prevRank = 0;
+
+  sorted.forEach((r, idx) => {
+    const score = Number(r.__score || 0);
+    const rank = (prevScore !== null && Math.abs(score - prevScore) < 1e-9)
+      ? prevRank
+      : idx + 1;
+
+    rankMap.set(r.id || r.__email || r.__company || idx, rank);
+
+    prevScore = score;
+    prevRank = rank;
+  });
+
+  return rankMap;
+}
+
+function calcSubmittedPercentile(rank, total){
+  if (!total || total <= 0) return 0;
+  return Math.max(
+    1,
+    Math.ceil((Number(rank || 1) / Number(total)) * 100)
+  );
+}
+
+function renderSubmittedAnswersRowsFromCache(){
+
+  const tbody = document.getElementById("submittedTbody");
+  if(!tbody) return false;
+
+  const cache = window.__submittedAnswersTableCache;
+  if(!cache || !Array.isArray(cache.rows)) return false;
+
+  const rows = [...cache.rows];
+
+  if(window.__submittedOverallListMode && (!window.__submittedListSort || !window.__submittedListSort.key)){
+    window.__submittedListSort = {
+      key: "total",
+      dir: "desc"
+    };
+    window.__submittedScoreSort = "desc";
+  }
+
+  if(!window.__submittedOverallListMode && (!window.__submittedListSort || !window.__submittedListSort.key)){
+    window.__submittedListSort = {
+      key: "submittedAt",
+      dir: "asc"
+    };
+    window.__submittedScoreSort = "";
+  }
+
+  const sortState = window.__submittedListSort || {};
+
+  if(sortState.key){
+
+    rows.sort((a,b)=>{
+
+      const base = compareSubmittedRowsByKey(a,b,sortState.key);
+
+      return sortState.dir === "desc"
+        ? -base
+        : base;
+    });
+  }
+
+  const totalRankMap = buildSubmittedTotalRankMap(cache.rows);
+
+  tbody.innerHTML = "";
+
+  rows.forEach((r,idx)=>{
+
+    const tr = document.createElement("tr");
+
+    if(window.__submittedOverallListMode){
+
+      const g1Names = cache.g1Names || [];
+
+      const totalRank = totalRankMap.get(r.id || r.__email || r.__company || idx) || (idx + 1);
+      const percentile = calcSubmittedPercentile(totalRank, cache.rows.length);
+
+      tr.innerHTML = `
+        <td style="text-align:center;">
+          <div class="submitted-rank-wrap">
+            <div class="submitted-rank-no">${totalRank}위</div>
+            <div class="submitted-rank-percentile">상위 ${percentile}%</div>
+          </div>
+        </td>
+
+        <td style="white-space:nowrap;">${escapeHtml(r.__company || "-")}</td>
+
+        <td style="text-align:right;">
+          <div class="submitted-score-main">${fmtStatNumber(r.__score || 0)}</div>
+        </td>
+
+        ${g1Names.map(name=>{
+
+          const v = r.__g1Scores?.[name];
+
+          return `
+            <td style="text-align:right;">
+              ${Number.isFinite(Number(v))
+                ? fmtStatNumber(v)
+                : "-"}
+            </td>
+          `;
+
+        }).join("")}
+      `;
+
+    }else{
+
+      tr.innerHTML = `
+        <td>${idx+1}</td>
+        <td>${escapeHtml(r.__company || "-")}</td>
+        <td>${escapeHtml(r.__name || "-")}</td>
+        <td>${escapeHtml(r.__email || "-")}</td>
+        <td>${escapeHtml(r.__submittedAt || "-")}</td>
+        <td>${fmtStatNumber(r.__score || 0)}</td>
+      `;
+    }
+
+    tbody.appendChild(tr);
+
+  });
+
+  return true;
+}
+
 
 async function loadSubmittedAnswersTable(){
   const tbody = document.getElementById("submittedTbody");
@@ -4761,7 +6003,6 @@ function convertUserAnswersToSim(surveyJson, payloadAnswers){
 
 
  function computeSubmittedScore100(surveyJson, submittedJson){
-  console.log("SIM ANSWERS:", state.sim.answers);
   if (!surveyJson || !submittedJson) return 0;
 if (typeof submittedJson === "string") {
   try { submittedJson = JSON.parse(submittedJson); } catch(e) {}
@@ -4854,12 +6095,10 @@ if (userIds.length) {
   }
 }
 
-tbody.innerHTML = "";
-rows.forEach((r, idx) => {
+const enrichedRows = rows.map((r) => {
   const submitted = r.submitted_json || r.answers || {};
   const p = profileMap[r.user_id] || {};
 
-  // ✅ profiles 우선, 없으면 기존 JSON fallback
   const company = p.company_name
     || getMeta(submitted, ["company", "company_name", "companyName", "회사명"])
     || "-";
@@ -4874,44 +6113,91 @@ rows.forEach((r, idx) => {
     || (r.user_id || "-");
 
   const score = computeSubmittedScore100(surveyJsonForAnswers, submitted);
-
-  // ✅ 결과 전송(사용자용 결과 다운로드 활성화) 상태
   const resultSent = !!getMeta(submitted, ["result_sent", "resultSent"]);
-
-  
-
   const submittedAt = r.submitted_at ? new Date(r.submitted_at).toLocaleString("ko-KR", { hour12:false }) : "-";
+
+  const g1Scores = getSubmittedAnswerG1ScoreMap(surveyJsonForAnswers, submitted);
+
+  return { ...r, __submitted: submitted, __company: company, __name: name, __email: email, __score: Number(score) || 0, __resultSent: resultSent, __submittedAt: submittedAt, __submittedAtMs: r.submitted_at ? new Date(r.submitted_at).getTime() : 0, __g1Scores: g1Scores };
+}).map((r, idx) => ({ ...r, __originalIndex: idx + 1 }));
+
+window.__submittedAnswersTableCache = {
+  rows: enrichedRows,
+  g1Names: getSubmittedAnswerG1Names(surveyJsonForAnswers)
+};
+
+const overallListMode = !!window.__submittedOverallListMode;
+const g1NamesForList = overallListMode ? getSubmittedAnswerG1Names(surveyJsonForAnswers) : [];
+setSubmittedAnswersHeader({ overallMode: overallListMode, g1Names: g1NamesForList });
+
+let sortState = window.__submittedListSort || {};
+const legacySortDir = window.__submittedScoreSort || "";
+if (overallListMode && !sortState.key) {
+  sortState = { key: "total", dir: "desc" };
+  window.__submittedListSort = sortState;
+  window.__submittedScoreSort = "desc";
+} else if (!overallListMode && !sortState.key) {
+  sortState = { key: "submittedAt", dir: "asc" };
+  window.__submittedListSort = sortState;
+  window.__submittedScoreSort = "";
+} else if (!sortState.key && legacySortDir) {
+  sortState = { key: "total", dir: legacySortDir };
+}
+
+const displayRows = [...enrichedRows].sort((a, b) => {
+  if (!sortState.key) return 0;
+  const base = compareSubmittedRowsByKey(a, b, sortState.key);
+  return sortState.dir === "desc" ? -base : base;
+});
+
+tbody.innerHTML = "";
+displayRows.forEach((r, idx) => {
 const tr = document.createElement("tr");
-  tr.innerHTML = `
-    <td>${idx + 1}</td>
-    <td style="word-break:break-all;">${company}</td>
-    <td style="word-break:break-all;">${name}</td>
-    <td style="word-break:break-all;">${email}</td>
-    <td class="submitted-at">${submittedAt}</td>
-    <td>${score}</td>
+
+  if (overallListMode) {
+    tr.innerHTML = `
+      <td style="text-align:center;">${idx + 1}</td>
+      <td style="white-space:nowrap; word-break:normal;">${escapeHtml(r.__company)}</td>
+      <td style="text-align:right; font-variant-numeric:tabular-nums;">${fmtStatNumber(r.__score)}</td>
+      ${g1NamesForList.map(name => {
+        const v = r.__g1Scores?.[name];
+        return `<td style="text-align:right; font-variant-numeric:tabular-nums;">${Number.isFinite(Number(v)) ? fmtStatNumber(v) : "-"}</td>`;
+      }).join("")}
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td style="word-break:break-all;">${escapeHtml(r.__company)}</td>
+      <td style="word-break:break-all;">${escapeHtml(r.__name)}</td>
+      <td style="word-break:break-all;">${escapeHtml(r.__email)}</td>
+      <td class="submitted-at">${escapeHtml(r.__submittedAt)}</td>
+      <td>${fmtStatNumber(r.__score)}</td>
 <td><button class="btn btn-edit-response" data-rid="${r.id}">편집</button></td>
 <td><button class="btn btn-dl-response" data-rid="${r.id}">다운로드</button></td>
 <td><button class="btn btn-dl-result-response" data-rid="${r.id}">결과 다운로드</button></td>
 <td><button class="btn btn-dl-evidence-response" data-rid="${r.id}">증빙 ZIP</button></td>
 <td>
   <div class="action-group single">
-    <button class="btn btn-send-result-response" data-rid="${r.id}">${resultSent ? "결과 회수" : "결과 전송"}</button>
+    <button class="btn btn-send-result-response" data-rid="${r.id}">${r.__resultSent ? "결과 회수" : "결과 전송"}</button>
   </div>
 </td>
-  `;
+    `;
+  }
   tbody.appendChild(tr);
 });
-
-
-
 
   // ✅ 결과 다운로드에서 재사용할 수 있도록 캐시
   window.__answersCtx = {
     survey: currentAnswersSurvey || null,
     surveyJson: surveyJsonForAnswers || null,
-    rows: Array.isArray(rows) ? rows : [],
+    rows: Array.isArray(enrichedRows) ? enrichedRows : (Array.isArray(rows) ? rows : []),
     profileMap: profileMap || {}
   };
+
+  const openedOverallPanel = document.getElementById("submittedOverallResultPanel");
+  if (openedOverallPanel && openedOverallPanel.style.display !== "none") {
+    renderSubmittedOverallResult();
+  }
 
   // 버튼 이벤트(편집/다운로드)
   tbody.querySelectorAll(".btn-edit-response").forEach(btn => {
