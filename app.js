@@ -3811,8 +3811,26 @@ if (btnSave) {
       const result = computeScoreFromSim();
       const totalScore = Number(result?.totalScore ?? 0);
 
+const editedCompany = String(state.sim.company || "").trim();
+
 const newSubmitted = {
   ...(state.sim.originalSubmitted || {}),
+
+  // ✅ 채점 시뮬레이터의 '피평가 회사명(옵션)' 수정값도 서버에 저장
+  company: editedCompany,
+  company_name: editedCompany,
+  companyName: editedCompany,
+  회사명: editedCompany,
+
+  // target 구조를 사용하는 기존 데이터도 함께 갱신
+  target: {
+    ...((state.sim.originalSubmitted || {}).target || {}),
+    company: editedCompany,
+    company_name: editedCompany,
+    companyName: editedCompany,
+    회사명: editedCompany
+  },
+
   answers: serializeSimAnswers(),
   evidenceFiles: state.sim.evidenceFiles || state.sim.originalSubmitted?.evidenceFiles || {},
   score: totalScore
@@ -3827,6 +3845,9 @@ const newSubmitted = {
         .eq("id", rid);
 
       if (error) throw error;
+
+      // ✅ 저장 직후 현재 편집본도 최신값으로 갱신
+      state.sim.originalSubmitted = newSubmitted;
 
       alert("저장 완료 (서버 반영됨)");
     } catch (e) {
@@ -6099,8 +6120,8 @@ const enrichedRows = rows.map((r) => {
   const submitted = r.submitted_json || r.answers || {};
   const p = profileMap[r.user_id] || {};
 
-  const company = p.company_name
-    || getMeta(submitted, ["company", "company_name", "companyName", "회사명"])
+  const company = getMeta(submitted, ["company", "company_name", "companyName", "회사명"])
+    || p.company_name
     || "-";
 
   const name = p.name
