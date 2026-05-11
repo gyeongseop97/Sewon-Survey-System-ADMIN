@@ -80,25 +80,25 @@ if (!window.JSZip) {
   const zipBlob = await zip.generateAsync({ type: "blob" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(zipBlob);
-const submitted = responseRow?.submitted_json || responseRow?.answers || {};
-const companyName =
-  submitted?.meta?.company_name ||
-  submitted?.meta?.company ||
-  submitted?.company_name ||
-  submitted?.company ||
-  "company";
+  
+  const surveyName =
+    currentAnswersSurvey?.title ||
+    currentAnswersSurvey?.name ||
+    currentAnswersSurvey?.code ||
+    "survey";
 
-const surveyName =
-  currentAnswersSurvey?.title ||
-  currentAnswersSurvey?.name ||
-  currentAnswersSurvey?.code ||
-  "survey";
+  const companyName =
+    submitted?.company_name ||
+    submitted?.company ||
+    submitted?.meta?.company_name ||
+    submitted?.meta?.company ||
+    "company";
 
-const safeSurveyName = surveyName.replace(/[\\/:*?"<>|]/g, "_");
-const safeCompanyName = companyName.replace(/[\\/:*?"<>|]/g, "_");
+  const safeSurveyName = String(surveyName).replace(/[\\/:*?"<>|]/g, "_").trim();
+  const safeCompanyName = String(companyName).replace(/[\\/:*?"<>|]/g, "_").trim();
 
-a.download = `${safeSurveyName}_${safeCompanyName}.zip`;
-document.body.appendChild(a);
+  a.download = `${safeSurveyName}_${safeCompanyName}.zip`;
+  document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(a.href);
@@ -6670,6 +6670,20 @@ renderWithScrollReset();
     });
   });
 tbody.querySelectorAll(".btn-dl-evidence-response").forEach(btn => {
+    const rid = btn.dataset.rid;
+    const found = rows.find(x => x.id === rid);
+
+    const submitted = found?.submitted_json || found?.answers || {};
+    const evidenceMap = getEvidenceFilesFromSubmitted(submitted);
+    const allFiles = Object.values(evidenceMap).flat();
+
+    if (!allFiles.length) {
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+      btn.style.cursor = "not-allowed";
+      btn.title = "첨부된 증빙자료가 없습니다.";
+      return;
+    }
   btn.addEventListener("click", async () => {
     const rid = btn.dataset.rid;
     const found = rows.find(x => x.id === rid);
