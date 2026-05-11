@@ -80,8 +80,25 @@ if (!window.JSZip) {
   const zipBlob = await zip.generateAsync({ type: "blob" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(zipBlob);
-  a.download = `evidence_${currentAnswersSurvey?.code || "survey"}_${responseRow.id}.zip`;
-  document.body.appendChild(a);
+const submitted = responseRow?.submitted_json || responseRow?.answers || {};
+const companyName =
+  submitted?.meta?.company_name ||
+  submitted?.meta?.company ||
+  submitted?.company_name ||
+  submitted?.company ||
+  "company";
+
+const surveyName =
+  currentAnswersSurvey?.title ||
+  currentAnswersSurvey?.name ||
+  currentAnswersSurvey?.code ||
+  "survey";
+
+const safeSurveyName = surveyName.replace(/[\\/:*?"<>|]/g, "_");
+const safeCompanyName = companyName.replace(/[\\/:*?"<>|]/g, "_");
+
+a.download = `${safeSurveyName}_${safeCompanyName}.zip`;
+document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(a.href);
